@@ -1,7 +1,7 @@
 const { createServer } = require("node:http");
-const { readFileSync, existsSync, mkdirSync, writeFileSync } = require("node:fs");
+const { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const ROOT = __dirname;
@@ -11,6 +11,13 @@ const PORT = Number(process.env.PORT || 4173);
 const ADMIN_ACCOUNT = "Admin";
 const ADMIN_PIN = "123456";
 const adminSessions = new Set();
+const WORKSHOPS = ["炼钢维修车间", "精炼连铸维修车间", "轧钢维修车间", "行车车间"];
+
+function hashPin(pin) {
+  return createHash("sha256").update(pin).digest("hex");
+}
+
+const DEFAULT_MEMBER_PIN_HASH = hashPin("123456");
 
 mkdirSync(PHOTO_DIR, { recursive: true });
 const database = new DatabaseSync(path.join(DATA_DIR, "training.db"));
@@ -20,6 +27,7 @@ database.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     workshop TEXT NOT NULL,
+    pin_hash TEXT NOT NULL DEFAULT '${DEFAULT_MEMBER_PIN_HASH}',
     active INTEGER NOT NULL DEFAULT 1
   ) STRICT;
   CREATE TABLE IF NOT EXISTS sessions (
@@ -35,21 +43,33 @@ database.exec(`
   CREATE INDEX IF NOT EXISTS sessions_member_started_idx ON sessions(member_id, started_at DESC);
 `);
 
-const seedMember = database.prepare("INSERT OR IGNORE INTO members (id, name, workshop) VALUES (?, ?, ?)");
+if (!database.prepare("PRAGMA table_info(members)").all().some((column) => column.name === "pin_hash")) {
+  database.exec(`ALTER TABLE members ADD COLUMN pin_hash TEXT NOT NULL DEFAULT '${DEFAULT_MEMBER_PIN_HASH}'`);
+}
+database.exec("CREATE UNIQUE INDEX IF NOT EXISTS members_name_unique_idx ON members(name)");
+
+const seedMember = database.prepare("INSERT OR IGNORE INTO members (id, name, workshop, pin_hash) VALUES (?, ?, ?, ?)");
 [
-  ["zhangwei", "张伟", "仪控维修一组"],
-  ["liang", "李昂", "电气维修二组"],
-  ["wangyu", "王宇", "自动化实训组"],
+  ["zhangwei", "张伟", "炼钢维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["liang", "李昂", "精炼连铸维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["wangyu", "王宇", "轧钢维修车间", DEFAULT_MEMBER_PIN_HASH],
 ].forEach((member) => seedMember.run(...member));
+const updateSeedWorkshop = database.prepare("UPDATE members SET workshop = ? WHERE id = ? AND workshop = ?");
+[["炼钢维修车间", "zhangwei", "仪控维修一组"], ["精炼连铸维修车间", "liang", "电气维修二组"], ["轧钢维修车间", "wangyu", "自动化实训组"]].forEach((member) => updateSeedWorkshop.run(...member));
 
 const statements = {
   members: database.prepare("SELECT id, name, workshop FROM members WHERE active = 1 ORDER BY id"),
   member: database.prepare("SELECT id, name, workshop FROM members WHERE id = ? AND active = 1"),
+  memberByName: database.prepare("SELECT id, name, workshop, pin_hash FROM members WHERE name = ? AND active = 1"),
   allMembers: database.prepare("SELECT id, name, workshop, active FROM members ORDER BY active DESC, name"),
   memberAny: database.prepare("SELECT id, name, workshop, active FROM members WHERE id = ?"),
-  createMember: database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)"),
+  createMember: database.prepare("INSERT INTO members (id, name, workshop, pin_hash) VALUES (?, ?, ?, ?)"),
   updateMember: database.prepare("UPDATE members SET name = ?, workshop = ? WHERE id = ?"),
+  updateMemberPin: database.prepare("UPDATE members SET pin_hash = ? WHERE id = ?"),
   disableMember: database.prepare("UPDATE members SET active = 0 WHERE id = ? AND active = 1"),
+  memberSessionPhotos: database.prepare("SELECT start_photo_path, end_photo_path FROM sessions WHERE member_id = ?"),
+  deleteMemberSessions: database.prepare("DELETE FROM sessions WHERE member_id = ?"),
+  deleteMember: database.prepare("DELETE FROM members WHERE id = ?"),
   active: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'training' LIMIT 1"),
   sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' ORDER BY started_at DESC"),
   allSessions: database.prepare("SELECT * FROM sessions ORDER BY started_at DESC"),
@@ -157,7 +177,20 @@ function memberPayload(body) {
   const workshop = typeof body.workshop === "string" ? body.workshop.trim() : "";
   if (!name || !workshop) throw new Error("请填写成员姓名和所属车间。");
   if (name.length > 32 || workshop.length > 64) throw new Error("成员姓名或所属车间过长，请控制在规定范围内。");
+  if (!WORKSHOPS.includes(workshop)) throw new Error("请选择有效的所属车间。");
   return { name, workshop };
+}
+
+function memberPin(pin, required) {
+  if (!pin && !required) return null;
+  if (typeof pin !== "string" || !/^\d{6}$/.test(pin)) throw new Error("PIN 必须为 6 位数字。");
+  return hashPin(pin);
+}
+
+function deleteStoredPhoto(photoPath) {
+  if (!photoPath) return;
+  const resolvedPath = path.resolve(photoPath);
+  if (resolvedPath.startsWith(`${PHOTO_DIR}${path.sep}`) && existsSync(resolvedPath)) unlinkSync(resolvedPath);
 }
 
 function parsePhoto(dataUrl) {
@@ -202,6 +235,13 @@ function serveFile(response, filePath) {
 
 async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/members") return sendJson(response, 200, { members: statements.members.all() });
+  if (request.method === "POST" && pathname === "/api/members/login") {
+    const body = await readJson(request);
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const member = statements.memberByName.get(name);
+    if (!member || member.pin_hash !== memberPin(body.pin, true)) return sendError(response, 401, "用户名或 PIN 不正确。");
+    return sendJson(response, 200, dashboard(member.id));
+  }
   if (request.method === "POST" && pathname === "/api/admin/login") {
     const body = await readJson(request);
     if (body.account !== ADMIN_ACCOUNT || body.pin !== ADMIN_PIN) return sendError(response, 401, "管理员账号或 PIN 不正确。");
@@ -224,18 +264,33 @@ async function handleApi(request, response, pathname) {
   }
   if (request.method === "POST" && pathname === "/api/admin/members") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
-    const { name, workshop } = memberPayload(await readJson(request));
+    const body = await readJson(request);
+    const { name, workshop } = memberPayload(body);
+    const pinHash = memberPin(body.pin, true);
     const id = `member-${randomUUID()}`;
-    statements.createMember.run(id, name, workshop);
-    return sendJson(response, 201, { member: { id, name, workshop, active: true } });
+    try {
+      statements.createMember.run(id, name, workshop, pinHash);
+      return sendJson(response, 201, { member: { id, name, workshop, active: true } });
+    } catch (error) {
+      if (/UNIQUE constraint/i.test(error.message)) return sendError(response, 409, "该用户名已存在，请使用不同的姓名。");
+      throw error;
+    }
   }
   const memberMatch = /^\/api\/admin\/members\/([^/]+)$/.exec(pathname);
   if (request.method === "PATCH" && memberMatch) {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     const id = decodeURIComponent(memberMatch[1]);
     if (!statements.memberAny.get(id)) return sendError(response, 404, "成员不存在。");
-    const { name, workshop } = memberPayload(await readJson(request));
-    statements.updateMember.run(name, workshop, id);
+    const body = await readJson(request);
+    const { name, workshop } = memberPayload(body);
+    const pinHash = memberPin(body.pin, false);
+    try {
+      statements.updateMember.run(name, workshop, id);
+      if (pinHash) statements.updateMemberPin.run(pinHash, id);
+    } catch (error) {
+      if (/UNIQUE constraint/i.test(error.message)) return sendError(response, 409, "该用户名已存在，请使用不同的姓名。");
+      throw error;
+    }
     return sendJson(response, 200, { member: { ...statements.memberAny.get(id), active: Boolean(statements.memberAny.get(id).active) } });
   }
   const disableMatch = /^\/api\/admin\/members\/([^/]+)\/disable$/.exec(pathname);
@@ -248,6 +303,25 @@ async function handleApi(request, response, pathname) {
     if (statements.active.get(id)) return sendError(response, 409, "该成员正在实训中，请先结束实训后再停用。");
     statements.disableMember.run(id);
     return sendJson(response, 200, { member: { ...statements.memberAny.get(id), active: false } });
+  }
+  if (request.method === "DELETE" && memberMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const id = decodeURIComponent(memberMatch[1]);
+    const member = statements.memberAny.get(id);
+    if (!member) return sendError(response, 404, "成员不存在。");
+    if (member.active) return sendError(response, 409, "请先停用成员，再删除账号与相关数据。");
+    const photos = statements.memberSessionPhotos.all(id);
+    database.exec("BEGIN");
+    try {
+      statements.deleteMemberSessions.run(id);
+      statements.deleteMember.run(id);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+    photos.forEach((session) => { deleteStoredPhoto(session.start_photo_path); deleteStoredPhoto(session.end_photo_path); });
+    return sendJson(response, 200, { ok: true });
   }
   const dashboardMatch = /^\/api\/members\/([^/]+)\/dashboard$/.exec(pathname);
   if (request.method === "GET" && dashboardMatch) {

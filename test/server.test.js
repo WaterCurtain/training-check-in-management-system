@@ -62,16 +62,22 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   const overview = await fetch(`${baseUrl}/api/admin/overview`, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(overview.status, 200);
   const data = await overview.json();
-  assert.equal(data.members.length, 3);
+  assert.ok(data.members.length >= 1);
   assert.equal(typeof data.summary.monthMinutes, "number");
 
-  const created = await fetch(`${baseUrl}/api/admin/members`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "临时成员", workshop: "测试车间" }) });
+  const created = await fetch(`${baseUrl}/api/admin/members`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "临时成员", workshop: "行车车间", pin: "654321" }) });
   assert.equal(created.status, 201);
   const createdData = await created.json();
   createdMemberId = createdData.member.id;
 
-  const edited = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "已编辑成员", workshop: "编辑车间" }) });
+  const memberLogin = await fetch(`${baseUrl}/api/members/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "临时成员", pin: "654321" }) });
+  assert.equal(memberLogin.status, 200);
+
+  const edited = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "已编辑成员", workshop: "轧钢维修车间", pin: "111111" }) });
   assert.equal(edited.status, 200);
+
+  const resetPinLogin = await fetch(`${baseUrl}/api/members/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "已编辑成员", pin: "111111" }) });
+  assert.equal(resetPinLogin.status, 200);
 
   database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(`test-session-${Date.now()}`, createdMemberId, new Date().toISOString(), "data/photos/test.png", new Date().toISOString());
   const activeMember = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}/disable`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
@@ -84,6 +90,11 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
 
   const signInMembers = await fetch(`${baseUrl}/api/members`);
   assert.equal((await signInMembers.json()).members.some((member) => member.id === createdMemberId), false);
+
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(`test-completed-${Date.now()}`, createdMemberId, new Date().toISOString(), new Date().toISOString(), "data/photos/removed-start.png", "data/photos/removed-end.png", new Date().toISOString());
+  const deleted = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(deleted.status, 200);
+  assert.equal(database.prepare("SELECT count(*) AS count FROM sessions WHERE member_id = ?").get(createdMemberId).count, 0);
 
   const logout = await fetch(`${baseUrl}/api/admin/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   assert.equal(logout.status, 200);

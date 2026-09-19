@@ -47,13 +47,24 @@ function escapeHtml(value) {
 }
 
 function populateMembers() {
-  $("memberSelect").innerHTML = state.members.map((member) => `<option value="${member.id}">${member.name} · ${member.workshop}</option>`).join("");
+  $("memberNameOptions").innerHTML = state.members.map((member) => `<option value="${escapeHtml(member.name)}">${escapeHtml(member.workshop)}</option>`).join("");
   const savedMember = localStorage.getItem(identityKey);
-  if (state.members.some((member) => member.id === savedMember)) $("memberSelect").value = savedMember;
+  const member = state.members.find((item) => item.id === savedMember || item.name === savedMember);
+  if (member) $("usernameInput").value = member.name;
+}
+
+async function loadMemberCandidates() {
+  const data = await request("/api/members");
+  state.members = data.members;
+  populateMembers();
 }
 
 async function loadDashboard() {
   const data = await request(`/api/members/${encodeURIComponent(state.memberId)}/dashboard`);
+  applyDashboard(data);
+}
+
+function applyDashboard(data) {
   state.active = data.active;
   state.records = data.records;
   state.statistics = data.statistics;
@@ -78,7 +89,7 @@ async function loadManagedMembers() {
 
 function renderManagedMembers() {
   $("memberCount").textContent = `共 ${state.managedMembers.length} 名成员`;
-  $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : ""}</td></tr>`).join("");
+  $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : `<button class="text-button delete-member" data-member-id="${member.id}" type="button">删除</button>`}</td></tr>`).join("");
 }
 
 async function showAdminOverview() {
@@ -110,7 +121,11 @@ function openMemberSheet(member = null) {
   $("memberSheetTitle").textContent = member ? "编辑成员" : "新增成员";
   $("memberSheetDescription").textContent = member ? "修改后会立即同步到成员信息与管理端总览。" : "填写成员的基础实训信息。";
   $("managedMemberName").value = member?.name || "";
-  $("managedMemberWorkshop").value = member?.workshop || "";
+  $("managedMemberWorkshop").value = member?.workshop || "炼钢维修车间";
+  $("managedMemberPin").value = "";
+  $("managedMemberPin").required = !member;
+  $("managedMemberPinLabel").textContent = member ? "重置 PIN（可选）" : "6 位 PIN";
+  $("managedMemberPinHint").textContent = member ? "留空则保留原 PIN；填写时必须为 6 位数字。" : "新成员必须设置 6 位数字 PIN。";
   $("memberFormError").textContent = "";
   $("saveMember").textContent = member ? "保存修改" : "保存成员";
   $("memberSheet").classList.remove("hidden");
@@ -133,10 +148,11 @@ async function saveMember(event) {
   button.textContent = "正在保存…";
   try {
     const isEditing = Boolean(state.editingMemberId);
-    const body = JSON.stringify({ name: $("managedMemberName").value, workshop: $("managedMemberWorkshop").value });
+    const body = JSON.stringify({ name: $("managedMemberName").value, workshop: $("managedMemberWorkshop").value, pin: $("managedMemberPin").value.trim() });
     const path = state.editingMemberId ? `/api/admin/members/${encodeURIComponent(state.editingMemberId)}` : "/api/admin/members";
     await request(path, { method: state.editingMemberId ? "PATCH" : "POST", headers: adminHeaders(), body });
     await loadManagedMembers();
+    await loadMemberCandidates();
     state.memberSaving = false;
     closeMemberSheet();
     showToast(isEditing ? "成员信息已更新。" : "成员已新增，可使用成员端签到。");
@@ -155,7 +171,21 @@ async function disableMember(memberId) {
   try {
     await request(`/api/admin/members/${encodeURIComponent(memberId)}/disable`, { method: "POST", headers: adminHeaders() });
     await loadManagedMembers();
+    await loadMemberCandidates();
     showToast("成员已停用，无法再登录签到。");
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
+async function deleteMember(memberId) {
+  const member = state.managedMembers.find((item) => item.id === memberId);
+  if (!member || !window.confirm(`确认永久删除“${member.name}”吗？该账号、全部训练记录和现场照片都将被删除，且无法恢复。`)) return;
+  try {
+    await request(`/api/admin/members/${encodeURIComponent(memberId)}`, { method: "DELETE", headers: adminHeaders() });
+    await loadManagedMembers();
+    await loadMemberCandidates();
+    showToast("账号及相关训练数据已永久删除。");
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -196,26 +226,25 @@ async function leaveAdminDashboard() {
 
 async function setupIdentity() {
   try {
-    const data = await request("/api/members");
-    state.members = data.members;
-    populateMembers();
+    await loadMemberCandidates();
   } catch (error) {
     $("identityError").textContent = serviceErrorMessage(error);
   }
   $("identityForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const pin = $("pinInput").value.trim();
-    if (pin !== "123456") { $("identityError").textContent = "PIN 不正确，请输入演示 PIN：123456。"; return; }
-    state.memberId = $("memberSelect").value;
+    const name = $("usernameInput").value.trim();
     try {
-      await loadDashboard();
-      localStorage.setItem(identityKey, state.memberId);
+      const data = await request("/api/members/login", { method: "POST", body: JSON.stringify({ name, pin }) });
+      state.memberId = data.member.id;
+      applyDashboard(data);
+      localStorage.setItem(identityKey, data.member.name);
       state.showAllRecords = false;
       $("identityError").textContent = "";
       $("identityView").classList.add("hidden");
       $("dashboard").classList.remove("hidden");
     } catch (error) {
-      $("identityError").textContent = `无法加载训练数据：${serviceErrorMessage(error)}`;
+      $("identityError").textContent = `无法登录：${serviceErrorMessage(error)}`;
     }
   });
   $("showAdminLogin").addEventListener("click", showAdminLogin);
@@ -391,7 +420,7 @@ async function confirmCheckin() {
   }
 }
 
-$("switchMember").addEventListener("click", () => { $("dashboard").classList.add("hidden"); $("identityView").classList.remove("hidden"); $("pinInput").value = ""; $("pinInput").focus(); });
+$("switchMember").addEventListener("click", () => { $("dashboard").classList.add("hidden"); $("identityView").classList.remove("hidden"); $("pinInput").value = ""; $("usernameInput").focus(); });
 $("closeSheet").addEventListener("click", closeSheet);
 $("sheetBackdrop").addEventListener("click", closeSheet);
 $("photoInput").addEventListener("change", handlePhoto);
@@ -410,6 +439,7 @@ $("memberManagementRows").addEventListener("click", (event) => {
   if (!memberId) return;
   if (event.target.classList.contains("edit-member")) openMemberSheet(state.managedMembers.find((member) => member.id === memberId));
   if (event.target.classList.contains("disable-member")) disableMember(memberId);
+  if (event.target.classList.contains("delete-member")) deleteMember(memberId);
 });
 setupIdentity();
 window.setInterval(renderTimer, 1000);

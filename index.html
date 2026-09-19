@@ -18,27 +18,24 @@
         <div class="identity-panel">
           <div class="panel-copy">
             <h1 id="identityTitle">开始今天的实训</h1>
-            <p>选择身份并验证 PIN 后，即可记录本次实训现场与时长。</p>
+            <p>输入用户名（姓名）与 PIN 后，即可记录本次实训现场与时长。</p>
           </div>
           <form id="identityForm" class="identity-form">
             <label>
-              <span>实训成员</span>
-              <select id="memberSelect" required>
-                <option value="zhangwei">张伟 · 仪控维修一组</option>
-                <option value="liang">李昂 · 电气维修二组</option>
-                <option value="wangyu">王宇 · 自动化实训组</option>
-              </select>
+              <span>用户名（姓名）</span>
+              <input id="usernameInput" list="memberNameOptions" autocomplete="username" maxlength="32" placeholder="输入姓名可快速筛选" required />
+              <datalist id="memberNameOptions"></datalist>
             </label>
             <label>
               <span>6 位 PIN</span>
               <input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入 6 位 PIN" required />
             </label>
-            <p class="field-hint">演示 PIN：123456</p>
+            <p class="field-hint">现有演示成员的默认 PIN：123456</p>
             <p class="form-error" id="identityError" role="alert"></p>
             <button class="primary-button" type="submit">进入我的实训</button>
           </form>
           <button class="admin-entry" id="showAdminLogin" type="button">管理员入口</button>
-          <p class="demo-note">本地服务会保存实训时间与照片；当前使用演示成员与演示 PIN。</p>
+          <p class="demo-note">本地服务会保存实训时间与照片；账号由管理员在人员管理中维护。</p>
         </div>
       </section>
 
@@ -178,7 +175,7 @@
           </header>
           <section class="admin-section" aria-labelledby="memberManagementTitle">
             <div class="admin-section-heading"><div><h2 id="memberManagementTitle">成员列表</h2><p>正在实训的成员需先完成结束签到，才能被停用。</p></div></div>
-            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>账号状态</th><th>操作</th></tr></thead><tbody id="memberManagementRows"></tbody></table></div>
+            <div class="admin-table-wrap"><table><thead><tr><th>用户名（姓名）</th><th>所属车间</th><th>账号状态</th><th>操作</th></tr></thead><tbody id="memberManagementRows"></tbody></table></div>
           </section>
         </main>
       </section>
@@ -216,8 +213,10 @@
           <button class="close-button" id="closeMemberSheet" aria-label="关闭">×</button>
         </div>
         <form class="identity-form member-form" id="memberForm">
-          <label><span>成员姓名</span><input id="managedMemberName" maxlength="32" autocomplete="name" placeholder="例如：陈浩" required /></label>
-          <label><span>所属车间</span><input id="managedMemberWorkshop" maxlength="64" placeholder="例如：电气维修二组" required /></label>
+          <label><span>用户名（姓名）</span><input id="managedMemberName" maxlength="32" autocomplete="name" placeholder="例如：陈浩" required /></label>
+          <label><span>所属车间</span><select id="managedMemberWorkshop" required><option value="炼钢维修车间">炼钢维修车间</option><option value="精炼连铸维修车间">精炼连铸维修车间</option><option value="轧钢维修车间">轧钢维修车间</option><option value="行车车间">行车车间</option></select></label>
+          <label><span id="managedMemberPinLabel">6 位 PIN</span><input id="managedMemberPin" inputmode="numeric" maxlength="6" pattern="\d{6}" autocomplete="new-password" placeholder="请输入 6 位数字" required /></label>
+          <p class="field-hint" id="managedMemberPinHint">新成员必须设置 6 位数字 PIN。</p>
           <p class="form-error" id="memberFormError" role="alert"></p>
           <button class="primary-button" id="saveMember" type="submit">保存成员</button>
         </form>
