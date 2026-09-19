@@ -124,6 +124,16 @@ async function loadMembers() {
   state.members = data.members;
 }
 
+function renderUsernameSuggestions() {
+  const input = $("usernameInput");
+  const list = $("usernameSuggestions");
+  const keyword = input.value.trim();
+  const matches = keyword ? state.members.filter((member) => member.name.includes(keyword)).slice(0, 6) : [];
+  list.innerHTML = matches.map((member) => `<button type="button" role="option" data-member-name="${escapeHtml(member.name)}"><strong>${escapeHtml(member.name)}</strong><span>${escapeHtml(member.workshop)}</span></button>`).join("");
+  list.classList.toggle("hidden", !matches.length);
+  input.setAttribute("aria-expanded", String(Boolean(matches.length)));
+}
+
 async function loadDashboard() {
   const data = await request(`/api/members/${encodeURIComponent(state.memberId)}/dashboard`);
   applyDashboard(data);
@@ -299,6 +309,8 @@ async function setupIdentity() {
     event.preventDefault();
     const pin = $("pinInput").value.trim();
     const name = $("usernameInput").value.trim();
+    if (!name) { $("identityError").textContent = "请输入用户名后再登录。"; $("usernameInput").focus(); return; }
+    if (!pin) { $("identityError").textContent = "请输入 6 位 PIN 后再登录。"; $("pinInput").focus(); return; }
     try {
       const data = await request("/api/members/login", { method: "POST", body: JSON.stringify({ name, pin }) });
       state.memberId = data.member.id;
@@ -310,6 +322,18 @@ async function setupIdentity() {
     } catch (error) {
       $("identityError").textContent = `无法登录：${serviceErrorMessage(error)}`;
     }
+  });
+  $("usernameInput").addEventListener("input", () => { $("identityError").textContent = ""; renderUsernameSuggestions(); });
+  $("usernameInput").addEventListener("focus", renderUsernameSuggestions);
+  $("usernameInput").addEventListener("blur", () => window.setTimeout(() => { $("usernameSuggestions").classList.add("hidden"); $("usernameInput").setAttribute("aria-expanded", "false"); }, 120));
+  $("usernameSuggestions").addEventListener("mousedown", (event) => {
+    const option = event.target.closest("button[data-member-name]");
+    if (!option) return;
+    event.preventDefault();
+    $("usernameInput").value = option.dataset.memberName;
+    $("usernameSuggestions").classList.add("hidden");
+    $("usernameInput").setAttribute("aria-expanded", "false");
+    $("pinInput").focus();
   });
   $("showAdminLogin").addEventListener("click", showAdminLogin);
   $("backToMember").addEventListener("click", () => { $("adminLogin").classList.add("hidden"); $("identityView").classList.remove("hidden"); });

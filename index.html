@@ -20,17 +20,18 @@
             <h1 id="identityTitle">开始今天的实训</h1>
             <p>输入用户名（姓名）与 PIN 后，即可记录本次实训现场与时长。</p>
           </div>
-          <form id="identityForm" class="identity-form">
+          <form id="identityForm" class="identity-form" novalidate>
             <label>
               <span>用户名（姓名）</span>
-              <input id="usernameInput" autocomplete="username" maxlength="32" placeholder="请输入用户名" required />
+              <input id="usernameInput" autocomplete="off" maxlength="32" placeholder="请输入用户名" required aria-autocomplete="list" aria-controls="usernameSuggestions" aria-expanded="false" />
+              <div class="username-suggestions hidden" id="usernameSuggestions" role="listbox" aria-label="可登录用户名"></div>
             </label>
             <label>
               <span>6 位 PIN</span>
               <input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入 6 位 PIN" required />
             </label>
             <p class="field-hint">现有演示成员的默认 PIN：123456</p>
-            <p class="form-error" id="identityError" role="alert"></p>
+            <p class="form-error identity-error" id="identityError" role="alert"></p>
             <button class="primary-button" type="submit">登录</button>
           </form>
           <button class="admin-entry" id="showAdminLogin" type="button">管理员入口</button>
@@ -230,7 +231,7 @@
           <small id="photoHint">照片为本次签到的必填凭证</small>
           <img id="photoPreview" alt="现场照片预览" class="hidden" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" />
         </label>
-        <p class="form-error" id="photoError" role="alert"></p>
+        <p class="form-error photo-error" id="photoError" role="alert"></p>
         <button class="primary-button" id="confirmCheckin" type="button"></button>
       </div>
     </section>
