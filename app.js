@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false };
 const identityKey = "training-checkin-member";
 const $ = (id) => document.getElementById(id);
 
@@ -64,6 +64,101 @@ async function loadDashboard() {
 async function loadAdminDashboard() {
   const data = await request("/api/admin/overview", { headers: { Authorization: `Bearer ${state.adminToken}` } });
   renderAdminDashboard(data);
+}
+
+function adminHeaders() {
+  return { Authorization: `Bearer ${state.adminToken}` };
+}
+
+async function loadManagedMembers() {
+  const data = await request("/api/admin/members", { headers: adminHeaders() });
+  state.managedMembers = data.members;
+  renderManagedMembers();
+}
+
+function renderManagedMembers() {
+  $("memberCount").textContent = `共 ${state.managedMembers.length} 名成员`;
+  $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : ""}</td></tr>`).join("");
+}
+
+async function showAdminOverview() {
+  try {
+    await loadAdminDashboard();
+    $("memberManagement").classList.add("hidden");
+    $("adminDashboard").querySelector(".admin-main").classList.remove("hidden");
+    $("showAdminOverview").className = "admin-nav-current";
+    $("showMemberManagement").className = "admin-nav-button";
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
+async function showMemberManagement() {
+  try {
+    await loadManagedMembers();
+    $("adminDashboard").querySelector(".admin-main").classList.add("hidden");
+    $("memberManagement").classList.remove("hidden");
+    $("showAdminOverview").className = "admin-nav-button";
+    $("showMemberManagement").className = "admin-nav-current";
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
+function openMemberSheet(member = null) {
+  state.editingMemberId = member?.id || null;
+  $("memberSheetTitle").textContent = member ? "编辑成员" : "新增成员";
+  $("memberSheetDescription").textContent = member ? "修改后会立即同步到成员信息与管理端总览。" : "填写成员的基础实训信息。";
+  $("managedMemberName").value = member?.name || "";
+  $("managedMemberWorkshop").value = member?.workshop || "";
+  $("memberFormError").textContent = "";
+  $("saveMember").textContent = member ? "保存修改" : "保存成员";
+  $("memberSheet").classList.remove("hidden");
+  $("managedMemberName").focus();
+}
+
+function closeMemberSheet() {
+  if (state.memberSaving) return;
+  $("memberSheet").classList.add("hidden");
+  state.editingMemberId = null;
+}
+
+async function saveMember(event) {
+  event.preventDefault();
+  if (state.memberSaving) return;
+  state.memberSaving = true;
+  const button = $("saveMember");
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在保存…";
+  try {
+    const isEditing = Boolean(state.editingMemberId);
+    const body = JSON.stringify({ name: $("managedMemberName").value, workshop: $("managedMemberWorkshop").value });
+    const path = state.editingMemberId ? `/api/admin/members/${encodeURIComponent(state.editingMemberId)}` : "/api/admin/members";
+    await request(path, { method: state.editingMemberId ? "PATCH" : "POST", headers: adminHeaders(), body });
+    await loadManagedMembers();
+    state.memberSaving = false;
+    closeMemberSheet();
+    showToast(isEditing ? "成员信息已更新。" : "成员已新增，可使用成员端签到。");
+  } catch (error) {
+    $("memberFormError").textContent = serviceErrorMessage(error);
+  } finally {
+    state.memberSaving = false;
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+async function disableMember(memberId) {
+  const member = state.managedMembers.find((item) => item.id === memberId);
+  if (!member || !window.confirm(`确认停用“${member.name}”吗？其历史训练记录会保留。`)) return;
+  try {
+    await request(`/api/admin/members/${encodeURIComponent(memberId)}/disable`, { method: "POST", headers: adminHeaders() });
+    await loadManagedMembers();
+    showToast("成员已停用，无法再登录签到。");
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
 }
 
 function renderAdminDashboard(data) {
@@ -303,5 +398,18 @@ $("photoInput").addEventListener("change", handlePhoto);
 $("confirmCheckin").addEventListener("click", confirmCheckin);
 $("showAllRecords").addEventListener("click", () => { state.showAllRecords = !state.showAllRecords; renderRecords(); });
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
+$("memberLogout").addEventListener("click", leaveAdminDashboard);
+$("showAdminOverview").addEventListener("click", showAdminOverview);
+$("showMemberManagement").addEventListener("click", showMemberManagement);
+$("addMember").addEventListener("click", () => openMemberSheet());
+$("closeMemberSheet").addEventListener("click", closeMemberSheet);
+$("memberSheetBackdrop").addEventListener("click", closeMemberSheet);
+$("memberForm").addEventListener("submit", saveMember);
+$("memberManagementRows").addEventListener("click", (event) => {
+  const memberId = event.target.dataset.memberId;
+  if (!memberId) return;
+  if (event.target.classList.contains("edit-member")) openMemberSheet(state.managedMembers.find((member) => member.id === memberId));
+  if (event.target.classList.contains("disable-member")) disableMember(memberId);
+});
 setupIdentity();
 window.setInterval(renderTimer, 1000);

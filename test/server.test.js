@@ -43,10 +43,14 @@ test("实训记录使用 SQLite 保存并关联本地照片", async (context) =>
 });
 
 test("管理员需要认证后才能读取训练总览", async (context) => {
+  let createdMemberId;
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  context.after(() => server.close());
+  context.after(() => {
+    server.close();
+    if (createdMemberId) database.prepare("DELETE FROM members WHERE id = ?").run(createdMemberId);
+  });
 
   const anonymous = await fetch(`${baseUrl}/api/admin/overview`);
   assert.equal(anonymous.status, 401);
@@ -60,6 +64,26 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   const data = await overview.json();
   assert.equal(data.members.length, 3);
   assert.equal(typeof data.summary.monthMinutes, "number");
+
+  const created = await fetch(`${baseUrl}/api/admin/members`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "临时成员", workshop: "测试车间" }) });
+  assert.equal(created.status, 201);
+  const createdData = await created.json();
+  createdMemberId = createdData.member.id;
+
+  const edited = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "已编辑成员", workshop: "编辑车间" }) });
+  assert.equal(edited.status, 200);
+
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(`test-session-${Date.now()}`, createdMemberId, new Date().toISOString(), "data/photos/test.png", new Date().toISOString());
+  const activeMember = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}/disable`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(activeMember.status, 409);
+  database.prepare("DELETE FROM sessions WHERE member_id = ?").run(createdMemberId);
+
+  const disabled = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}/disable`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(disabled.status, 200);
+  assert.equal((await disabled.json()).member.active, false);
+
+  const signInMembers = await fetch(`${baseUrl}/api/members`);
+  assert.equal((await signInMembers.json()).members.some((member) => member.id === createdMemberId), false);
 
   const logout = await fetch(`${baseUrl}/api/admin/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   assert.equal(logout.status, 200);

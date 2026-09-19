@@ -45,6 +45,11 @@ const seedMember = database.prepare("INSERT OR IGNORE INTO members (id, name, wo
 const statements = {
   members: database.prepare("SELECT id, name, workshop FROM members WHERE active = 1 ORDER BY id"),
   member: database.prepare("SELECT id, name, workshop FROM members WHERE id = ? AND active = 1"),
+  allMembers: database.prepare("SELECT id, name, workshop, active FROM members ORDER BY active DESC, name"),
+  memberAny: database.prepare("SELECT id, name, workshop, active FROM members WHERE id = ?"),
+  createMember: database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)"),
+  updateMember: database.prepare("UPDATE members SET name = ?, workshop = ? WHERE id = ?"),
+  disableMember: database.prepare("UPDATE members SET active = 0 WHERE id = ? AND active = 1"),
   active: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'training' LIMIT 1"),
   sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' ORDER BY started_at DESC"),
   allSessions: database.prepare("SELECT * FROM sessions ORDER BY started_at DESC"),
@@ -120,7 +125,8 @@ function isAdmin(request) {
 
 function adminOverview() {
   const now = new Date();
-  const members = statements.members.all();
+  const allMembers = statements.allMembers.all();
+  const members = allMembers.filter((member) => member.active);
   const sessions = statements.allSessions.all();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -132,7 +138,7 @@ function adminOverview() {
     return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
-  const names = new Map(members.map((member) => [member.id, member.name]));
+  const names = new Map(allMembers.map((member) => [member.id, member.name]));
   return {
     now: now.toISOString(),
     summary: {
@@ -144,6 +150,14 @@ function adminOverview() {
     members: memberStats,
     recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 8).map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id) })),
   };
+}
+
+function memberPayload(body) {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const workshop = typeof body.workshop === "string" ? body.workshop.trim() : "";
+  if (!name || !workshop) throw new Error("请填写成员姓名和所属车间。");
+  if (name.length > 32 || workshop.length > 64) throw new Error("成员姓名或所属车间过长，请控制在规定范围内。");
+  return { name, workshop };
 }
 
 function parsePhoto(dataUrl) {
@@ -203,6 +217,37 @@ async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/admin/overview") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     return sendJson(response, 200, adminOverview());
+  }
+  if (request.method === "GET" && pathname === "/api/admin/members") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    return sendJson(response, 200, { members: statements.allMembers.all().map((member) => ({ ...member, active: Boolean(member.active) })) });
+  }
+  if (request.method === "POST" && pathname === "/api/admin/members") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const { name, workshop } = memberPayload(await readJson(request));
+    const id = `member-${randomUUID()}`;
+    statements.createMember.run(id, name, workshop);
+    return sendJson(response, 201, { member: { id, name, workshop, active: true } });
+  }
+  const memberMatch = /^\/api\/admin\/members\/([^/]+)$/.exec(pathname);
+  if (request.method === "PATCH" && memberMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const id = decodeURIComponent(memberMatch[1]);
+    if (!statements.memberAny.get(id)) return sendError(response, 404, "成员不存在。");
+    const { name, workshop } = memberPayload(await readJson(request));
+    statements.updateMember.run(name, workshop, id);
+    return sendJson(response, 200, { member: { ...statements.memberAny.get(id), active: Boolean(statements.memberAny.get(id).active) } });
+  }
+  const disableMatch = /^\/api\/admin\/members\/([^/]+)\/disable$/.exec(pathname);
+  if (request.method === "POST" && disableMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const id = decodeURIComponent(disableMatch[1]);
+    const member = statements.memberAny.get(id);
+    if (!member) return sendError(response, 404, "成员不存在。");
+    if (!member.active) return sendError(response, 409, "该成员已停用。");
+    if (statements.active.get(id)) return sendError(response, 409, "该成员正在实训中，请先结束实训后再停用。");
+    statements.disableMember.run(id);
+    return sendJson(response, 200, { member: { ...statements.memberAny.get(id), active: false } });
   }
   const dashboardMatch = /^\/api\/members\/([^/]+)\/dashboard$/.exec(pathname);
   if (request.method === "GET" && dashboardMatch) {

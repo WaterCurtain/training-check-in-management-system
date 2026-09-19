@@ -145,8 +145,11 @@
             <span class="brand-mark"><span></span><span></span><span></span></span>
             <span>电气仪控实训室<small>实训签到管理系统</small></span>
           </a>
-          <nav aria-label="管理端导航"><span class="admin-nav-current">训练总览</span></nav>
-          <p>本阶段已接入实时总览；人员、异常与导出将在后续功能中开放。</p>
+          <nav aria-label="管理端导航">
+            <button class="admin-nav-current" id="showAdminOverview" type="button">训练总览</button>
+            <button class="admin-nav-button" id="showMemberManagement" type="button">人员管理</button>
+          </nav>
+          <p>集中维护实训成员，历史训练记录会持续保留。</p>
         </aside>
         <main class="admin-main">
           <header class="admin-header">
@@ -166,6 +169,16 @@
           <section class="admin-section" aria-labelledby="adminRecordsTitle">
             <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最近完成的记录会关联开始与结束照片。</p></div></div>
             <div class="admin-records" id="adminRecords"></div>
+          </section>
+        </main>
+        <main class="admin-main hidden" id="memberManagement">
+          <header class="admin-header">
+            <div><h1>人员管理</h1><p>新增、维护或停用实训成员；停用后将无法继续签到。</p></div>
+            <div class="admin-actions"><span id="memberCount"></span><button class="primary-button admin-add-button" id="addMember" type="button">新增成员</button><button class="text-button" id="memberLogout" type="button">退出管理端</button></div>
+          </header>
+          <section class="admin-section" aria-labelledby="memberManagementTitle">
+            <div class="admin-section-heading"><div><h2 id="memberManagementTitle">成员列表</h2><p>正在实训的成员需先完成结束签到，才能被停用。</p></div></div>
+            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>账号状态</th><th>操作</th></tr></thead><tbody id="memberManagementRows"></tbody></table></div>
           </section>
         </main>
       </section>
@@ -192,6 +205,22 @@
         </label>
         <p class="form-error" id="photoError" role="alert"></p>
         <button class="primary-button" id="confirmCheckin" type="button"></button>
+      </div>
+    </section>
+
+    <section class="member-sheet hidden" id="memberSheet" aria-modal="true" role="dialog" aria-labelledby="memberSheetTitle">
+      <div class="sheet-backdrop" id="memberSheetBackdrop"></div>
+      <div class="member-sheet-card">
+        <div class="sheet-header">
+          <div><h2 id="memberSheetTitle">新增成员</h2><p id="memberSheetDescription">填写成员的基础实训信息。</p></div>
+          <button class="close-button" id="closeMemberSheet" aria-label="关闭">×</button>
+        </div>
+        <form class="identity-form member-form" id="memberForm">
+          <label><span>成员姓名</span><input id="managedMemberName" maxlength="32" autocomplete="name" placeholder="例如：陈浩" required /></label>
+          <label><span>所属车间</span><input id="managedMemberWorkshop" maxlength="64" placeholder="例如：电气维修二组" required /></label>
+          <p class="form-error" id="memberFormError" role="alert"></p>
+          <button class="primary-button" id="saveMember" type="submit">保存成员</button>
+        </form>
       </div>
     </section>
 
