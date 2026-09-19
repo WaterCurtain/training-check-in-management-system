@@ -1,5 +1,4 @@
 const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false };
-const identityKey = "training-checkin-member";
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -46,17 +45,9 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;" })[character]);
 }
 
-function populateMembers() {
-  $("memberNameOptions").innerHTML = state.members.map((member) => `<option value="${escapeHtml(member.name)}">${escapeHtml(member.workshop)}</option>`).join("");
-  const savedMember = localStorage.getItem(identityKey);
-  const member = state.members.find((item) => item.id === savedMember || item.name === savedMember);
-  if (member) $("usernameInput").value = member.name;
-}
-
-async function loadMemberCandidates() {
+async function loadMembers() {
   const data = await request("/api/members");
   state.members = data.members;
-  populateMembers();
 }
 
 async function loadDashboard() {
@@ -152,7 +143,7 @@ async function saveMember(event) {
     const path = state.editingMemberId ? `/api/admin/members/${encodeURIComponent(state.editingMemberId)}` : "/api/admin/members";
     await request(path, { method: state.editingMemberId ? "PATCH" : "POST", headers: adminHeaders(), body });
     await loadManagedMembers();
-    await loadMemberCandidates();
+    await loadMembers();
     state.memberSaving = false;
     closeMemberSheet();
     showToast(isEditing ? "成员信息已更新。" : "成员已新增，可使用成员端签到。");
@@ -171,7 +162,7 @@ async function disableMember(memberId) {
   try {
     await request(`/api/admin/members/${encodeURIComponent(memberId)}/disable`, { method: "POST", headers: adminHeaders() });
     await loadManagedMembers();
-    await loadMemberCandidates();
+    await loadMembers();
     showToast("成员已停用，无法再登录签到。");
   } catch (error) {
     showToast(serviceErrorMessage(error));
@@ -184,7 +175,7 @@ async function deleteMember(memberId) {
   try {
     await request(`/api/admin/members/${encodeURIComponent(memberId)}`, { method: "DELETE", headers: adminHeaders() });
     await loadManagedMembers();
-    await loadMemberCandidates();
+    await loadMembers();
     showToast("账号及相关训练数据已永久删除。");
   } catch (error) {
     showToast(serviceErrorMessage(error));
@@ -226,7 +217,7 @@ async function leaveAdminDashboard() {
 
 async function setupIdentity() {
   try {
-    await loadMemberCandidates();
+    await loadMembers();
   } catch (error) {
     $("identityError").textContent = serviceErrorMessage(error);
   }
@@ -238,7 +229,6 @@ async function setupIdentity() {
       const data = await request("/api/members/login", { method: "POST", body: JSON.stringify({ name, pin }) });
       state.memberId = data.member.id;
       applyDashboard(data);
-      localStorage.setItem(identityKey, data.member.name);
       state.showAllRecords = false;
       $("identityError").textContent = "";
       $("identityView").classList.add("hidden");
