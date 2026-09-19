@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "" };
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -27,6 +27,11 @@ function formatClock(date) {
 
 function formatDate(date) {
   return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date(date));
+}
+
+function inputDate(date) {
+  const value = new Date(date);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function startOfDay(date) {
@@ -85,7 +90,7 @@ function renderBarChart(values, labels) {
   return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本月每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg>`;
 }
 
-function renderLineChart(values, labels) {
+function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图") {
   const max = Math.max(...values, 60);
   const width = 520;
   const height = 220;
@@ -100,7 +105,7 @@ function renderLineChart(values, labels) {
     return `<line x1="${plot.left}" x2="${width - plot.right}" y1="${y}" y2="${y}" /><text x="0" y="${y + 4}">${formatChartHours(max * ratio).replace("小时", "")}</text>`;
   }).join("");
   const dots = points.map(({ x, y }, index) => `<g><title>${labels[index]}：${formatMinutes(values[index])}</title><circle class="chart-dot" cx="${x}" cy="${y}" r="4" /><text class="chart-x-label" x="${x}" y="${height - 8}">${labels[index]}</text></g>`).join("");
-  return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本周训练趋势折线图。本周累计 ${formatMinutes(values.reduce((total, value) => total + value, 0))}"><g class="chart-grid">${grid}</g><polyline class="chart-line" points="${polyline}" />${dots}</svg>`;
+  return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${ariaLabel}。累计 ${formatMinutes(values.reduce((total, value) => total + value, 0))}"><g class="chart-grid">${grid}</g><polyline class="chart-line" points="${polyline}" />${dots}</svg>`;
 }
 
 function currentMember() {
@@ -162,6 +167,14 @@ async function loadManagedMembers() {
   renderManagedMembers();
 }
 
+async function loadAdminRecords(memberId = state.adminRecordMemberId) {
+  const query = memberId ? `?memberId=${encodeURIComponent(memberId)}` : "";
+  const data = await request(`/api/admin/records${query}`, { headers: adminHeaders() });
+  state.adminRecords = data.records;
+  state.adminRecordMembers = data.members;
+  renderAdminRecords();
+}
+
 function renderManagedMembers() {
   $("memberCount").textContent = `共 ${state.managedMembers.length} 名成员`;
   $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : `<button class="text-button delete-member" data-member-id="${member.id}" type="button">删除</button>`}</td></tr>`).join("");
@@ -171,9 +184,27 @@ async function showAdminOverview() {
   try {
     await loadAdminDashboard();
     $("memberManagement").classList.add("hidden");
-    $("adminDashboard").querySelector(".admin-main").classList.remove("hidden");
+    $("adminRecordManagement").classList.add("hidden");
+    $("adminOverview").classList.remove("hidden");
     $("showAdminOverview").className = "admin-nav-current";
     $("showMemberManagement").className = "admin-nav-button";
+    $("showAdminRecords").className = "admin-nav-button";
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
+async function showAdminRecords(memberId = "") {
+  try {
+    state.adminRecordMemberId = memberId;
+    state.adminRecordDate = "";
+    await loadAdminRecords();
+    $("adminOverview").classList.add("hidden");
+    $("memberManagement").classList.add("hidden");
+    $("adminRecordManagement").classList.remove("hidden");
+    $("showAdminOverview").className = "admin-nav-button";
+    $("showMemberManagement").className = "admin-nav-button";
+    $("showAdminRecords").className = "admin-nav-current";
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -182,10 +213,12 @@ async function showAdminOverview() {
 async function showMemberManagement() {
   try {
     await loadManagedMembers();
-    $("adminDashboard").querySelector(".admin-main").classList.add("hidden");
+    $("adminOverview").classList.add("hidden");
+    $("adminRecordManagement").classList.add("hidden");
     $("memberManagement").classList.remove("hidden");
     $("showAdminOverview").className = "admin-nav-button";
     $("showMemberManagement").className = "admin-nav-current";
+    $("showAdminRecords").className = "admin-nav-button";
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -266,6 +299,36 @@ async function deleteMember(memberId) {
   }
 }
 
+function renderAdminVisualization(visualization) {
+  const daily = visualization.daily;
+  const total = daily.reduce((sum, item) => sum + item.minutes, 0);
+  $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
+  $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), daily.map((item) => `${item.day}日`), "本月全员每日实训时长趋势图") : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
+  const maxRank = Math.max(...visualization.ranking.map((item) => item.minutes), 1);
+  $("adminRankingChart").innerHTML = visualization.ranking.length ? `<div class="ranking-list">${visualization.ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div>` : '<p class="admin-empty">暂无排名数据。</p>';
+  const totalMembers = visualization.reachedMembers + visualization.remainingMembers;
+  const reachedRatio = totalMembers ? visualization.reachedMembers / totalMembers : 0;
+  $("adminAttainmentChart").innerHTML = `<div class="attainment-summary"><strong>${visualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><div class="attainment-track"><i style="--attainment-progress:${reachedRatio}"></i></div><small>未达标 ${visualization.remainingMembers} 人</small></div>`;
+  const maxFrequency = Math.max(...visualization.frequency.map((item) => item.count), 1);
+  $("adminFrequencyChart").innerHTML = visualization.frequency.length ? `<div class="frequency-list">${visualization.frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
+}
+
+function renderAdminRecords() {
+  const memberFilter = $("adminRecordMemberFilter");
+  memberFilter.innerHTML = `<option value="">全部成员</option>${state.adminRecordMembers.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
+  memberFilter.value = state.adminRecordMemberId;
+  $("adminRecordDateFilter").value = state.adminRecordDate;
+  const records = state.adminRecords.filter((record) => !state.adminRecordDate || inputDate(record.start) === state.adminRecordDate);
+  $("adminRecordFilterSummary").textContent = `共 ${records.length} 条已完成实训记录`;
+  const groups = new Map();
+  records.forEach((record) => {
+    const date = inputDate(record.start);
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(record);
+  });
+  $("adminRecordGroups").innerHTML = groups.size ? [...groups.entries()].map(([date, items]) => `<section class="admin-record-day"><header><strong>${formatDate(`${date}T00:00:00`)}</strong><span>${items.length} 条记录</span></header><div>${items.map((record) => `<article class="admin-record-card"><div class="admin-record-card-main"><div><strong>${escapeHtml(record.memberName)}</strong><span>${escapeHtml(record.workshop)}</span></div><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><em>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</em></div><div class="admin-record-proof"><figure><img src="${escapeHtml(record.startPhoto)}" alt="${escapeHtml(record.memberName)}的开始现场照片" /><figcaption>开始</figcaption></figure><figure><img src="${escapeHtml(record.endPhoto)}" alt="${escapeHtml(record.memberName)}的结束现场照片" /><figcaption>结束</figcaption></figure></div></article>`).join("")}</div></section>`).join("") : '<section class="admin-section"><p class="admin-empty">没有符合筛选条件的已完成实训记录。</p></section>';
+}
+
 function renderAdminDashboard(data) {
   $("adminDate").textContent = formatDate(data.now);
   $("adminMonthMinutes").textContent = formatMinutes(data.summary.monthMinutes);
@@ -276,8 +339,9 @@ function renderAdminDashboard(data) {
     const ratio = Math.min(member.monthMinutes / member.goalMinutes, 1);
     const status = member.active ? "实训中" : member.monthMinutes >= member.goalMinutes ? "已达标" : "未达标";
     const statusClass = member.active ? "admin-status-active" : member.monthMinutes >= member.goalMinutes ? "admin-status-complete" : "admin-status-pending";
-    return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${Math.round(member.monthMinutes / member.goalMinutes * 100)}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td></tr>`;
+    return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${Math.round(member.monthMinutes / member.goalMinutes * 100)}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td><td><button class="text-button admin-member-records" data-member-id="${escapeHtml(member.id)}" type="button">查看记录</button></td></tr>`;
   }).join("");
+  renderAdminVisualization(data.visualization);
   $("adminRecords").innerHTML = data.recentRecords.length ? data.recentRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)}</strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos"><img src="${record.startPhoto}" alt="${escapeHtml(record.memberName)}的开始现场照片" /><img src="${record.endPhoto}" alt="${escapeHtml(record.memberName)}的结束现场照片" /></div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
 }
 
@@ -544,8 +608,17 @@ $("confirmCheckin").addEventListener("click", confirmCheckin);
 $("showAllRecords").addEventListener("click", () => { state.showAllRecords = !state.showAllRecords; renderRecords(); });
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
 $("memberLogout").addEventListener("click", leaveAdminDashboard);
+$("adminRecordsLogout").addEventListener("click", leaveAdminDashboard);
 $("showAdminOverview").addEventListener("click", showAdminOverview);
+$("showAdminRecords").addEventListener("click", () => showAdminRecords());
 $("showMemberManagement").addEventListener("click", showMemberManagement);
+$("adminMemberRows").addEventListener("click", (event) => {
+  const memberId = event.target.dataset.memberId;
+  if (memberId && event.target.classList.contains("admin-member-records")) showAdminRecords(memberId);
+});
+$("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordMemberId = event.target.value; state.adminRecordDate = ""; loadAdminRecords(); });
+$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDate = event.target.value; renderAdminRecords(); });
+$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; loadAdminRecords(); });
 $("addMember").addEventListener("click", () => openMemberSheet());
 $("closeMemberSheet").addEventListener("click", closeMemberSheet);
 $("memberSheetBackdrop").addEventListener("click", closeMemberSheet);

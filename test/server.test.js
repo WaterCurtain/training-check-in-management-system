@@ -54,6 +54,8 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
 
   const anonymous = await fetch(`${baseUrl}/api/admin/overview`);
   assert.equal(anonymous.status, 401);
+  const anonymousRecords = await fetch(`${baseUrl}/api/admin/records`);
+  assert.equal(anonymousRecords.status, 401);
 
   const login = await fetch(`${baseUrl}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account: "Admin", pin: "123456" }) });
   assert.equal(login.status, 200);
@@ -64,6 +66,14 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   const data = await overview.json();
   assert.ok(data.members.length >= 1);
   assert.equal(typeof data.summary.monthMinutes, "number");
+  assert.ok(Array.isArray(data.visualization.daily));
+  assert.ok(Array.isArray(data.visualization.ranking));
+
+  const records = await fetch(`${baseUrl}/api/admin/records`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(records.status, 200);
+  const recordData = await records.json();
+  assert.ok(Array.isArray(recordData.members));
+  assert.ok(Array.isArray(recordData.records));
 
   const created = await fetch(`${baseUrl}/api/admin/members`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "临时成员", workshop: "行车车间", pin: "654321" }) });
   assert.equal(created.status, 201);

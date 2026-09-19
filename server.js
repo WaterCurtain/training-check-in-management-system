@@ -159,6 +159,12 @@ function adminOverview() {
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
   const names = new Map(allMembers.map((member) => [member.id, member.name]));
+  const daily = [];
+  for (let cursor = new Date(monthStart); cursor < nextMonth; cursor.setDate(cursor.getDate() + 1)) {
+    const dayStart = new Date(cursor);
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    daily.push({ day: dayStart.getDate(), minutes: sessions.reduce((total, session) => total + minutesInRange(session, dayStart, dayEnd, now), 0) });
+  }
   return {
     now: now.toISOString(),
     summary: {
@@ -169,7 +175,23 @@ function adminOverview() {
     },
     members: memberStats,
     recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 8).map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id) })),
+    visualization: {
+      daily,
+      ranking: [...memberStats].sort((left, right) => right.monthMinutes - left.monthMinutes).map((member) => ({ id: member.id, name: member.name, minutes: member.monthMinutes })),
+      frequency: [...memberStats].sort((left, right) => right.monthCount - left.monthCount).map((member) => ({ id: member.id, name: member.name, count: member.monthCount })),
+      reachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
+      remainingMembers: memberStats.filter((member) => member.monthMinutes < goalMinutes).length,
+    },
   };
+}
+
+function adminRecords(memberId) {
+  const members = statements.allMembers.all();
+  const names = new Map(members.map((member) => [member.id, member]));
+  const records = statements.allSessions.all()
+    .filter((session) => session.status === "completed" && (!memberId || session.member_id === memberId))
+    .map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id)?.name, workshop: names.get(session.member_id)?.workshop }));
+  return { members, records };
 }
 
 function memberPayload(body) {
@@ -257,6 +279,12 @@ async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/admin/overview") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     return sendJson(response, 200, adminOverview());
+  }
+  if (request.method === "GET" && pathname === "/api/admin/records") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const memberId = new URL(request.url, `http://${request.headers.host || "localhost"}`).searchParams.get("memberId") || "";
+    if (memberId && !statements.memberAny.get(memberId)) return sendError(response, 404, "成员不存在。");
+    return sendJson(response, 200, adminRecords(memberId));
   }
   if (request.method === "GET" && pathname === "/api/admin/members") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");

@@ -174,12 +174,13 @@
             <span>电气仪控实训室<small>实训签到管理系统</small></span>
           </a>
           <nav aria-label="管理端导航">
-            <button class="admin-nav-current" id="showAdminOverview" type="button">训练总览</button>
-            <button class="admin-nav-button" id="showMemberManagement" type="button">人员管理</button>
+            <button class="admin-nav-current" id="showAdminOverview" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19V10m6 9V5m6 14v-7"/></svg><span>训练总览</span></button>
+            <button class="admin-nav-button" id="showAdminRecords" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5zM8 13h8m-8 4h6M8 9h4"/></svg><span>实训记录</span></button>
+            <button class="admin-nav-button" id="showMemberManagement" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c.8-3.5 2.8-5 6-5s5.2 1.5 6 5M17 7h4m-2-2v4"/></svg><span>人员管理</span></button>
           </nav>
           <p>集中维护实训成员，历史训练记录会持续保留。</p>
         </aside>
-        <main class="admin-main">
+        <main class="admin-main" id="adminOverview">
           <header class="admin-header">
             <div><h1>训练总览</h1><p>实时掌握实训室运行情况，保障教学秩序与实训安全。</p></div>
             <div class="admin-actions"><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
@@ -190,14 +191,41 @@
             <article><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
             <article><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
           </section>
+          <section class="admin-visuals" aria-labelledby="adminVisualsTitle">
+            <div class="admin-section-heading"><div><h2 id="adminVisualsTitle">本月训练数据</h2><p>统计范围为全员有效实训记录，按服务器时间自动汇总。</p></div></div>
+            <div class="admin-chart-wide">
+              <div class="chart-heading"><div><h3>每日实训趋势</h3><p id="adminDailySummary">本月尚无实训记录</p></div><span>单位：小时</span></div>
+              <div class="chart-canvas" id="adminDailyChart"></div>
+            </div>
+            <div class="admin-chart-grid">
+              <div class="admin-chart-panel"><div class="chart-heading"><div><h3>个人实训时长排名</h3><p>本月累计有效时长</p></div></div><div id="adminRankingChart"></div></div>
+              <div class="admin-chart-panel"><div class="chart-heading"><div><h3>月度达标情况</h3><p>目标为 16 小时</p></div></div><div id="adminAttainmentChart"></div></div>
+              <div class="admin-chart-panel"><div class="chart-heading"><div><h3>每人训练频率</h3><p>本月已完成实训次数</p></div></div><div id="adminFrequencyChart"></div></div>
+            </div>
+          </section>
           <section class="admin-section" aria-labelledby="adminMembersTitle">
             <div class="admin-section-heading"><div><h2 id="adminMembersTitle">成员训练进度</h2><p>本月数据按服务器时间自动汇总。</p></div></div>
-            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度</th><th>实训状态</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
+            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度</th><th>实训状态</th><th>记录</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
           </section>
           <section class="admin-section" aria-labelledby="adminRecordsTitle">
             <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最近完成的记录会关联开始与结束照片。</p></div></div>
             <div class="admin-records" id="adminRecords"></div>
           </section>
+        </main>
+        <main class="admin-main hidden" id="adminRecordManagement">
+          <header class="admin-header">
+            <div><h1>实训记录</h1><p>按日期索引全部已完成实训，并保留开始与结束现场照片。</p></div>
+            <div class="admin-actions"><button class="text-button" id="adminRecordsLogout" type="button">退出管理端</button></div>
+          </header>
+          <section class="admin-section" aria-labelledby="adminRecordFilterTitle">
+            <div class="admin-section-heading"><div><h2 id="adminRecordFilterTitle">记录筛选</h2><p id="adminRecordFilterSummary">加载中</p></div></div>
+            <div class="record-filters">
+              <label><span>成员</span><select id="adminRecordMemberFilter"><option value="">全部成员</option></select></label>
+              <label><span>日期</span><input id="adminRecordDateFilter" type="date" /></label>
+              <button class="text-button" id="clearAdminRecordFilters" type="button">清除筛选</button>
+            </div>
+          </section>
+          <div class="admin-record-groups" id="adminRecordGroups"></div>
         </main>
         <main class="admin-main hidden" id="memberManagement">
           <header class="admin-header">
