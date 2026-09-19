@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordDraftMemberId: "", adminRecordDraftDate: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminRecordPage: 1, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
@@ -224,14 +224,11 @@ async function showAdminRecords(memberId = "") {
   try {
     const now = new Date();
     state.adminRecordMemberId = memberId;
-    state.adminRecordDate = "";
     state.adminRecordDraftMemberId = memberId;
-    state.adminRecordDraftDate = "";
     state.adminRecordYear = now.getFullYear();
     state.adminRecordMonth = now.getMonth();
     state.adminRecordDraftYear = state.adminRecordYear;
     state.adminRecordDraftMonth = state.adminRecordMonth;
-    state.adminRecordPage = 1;
     state.adminCalendarDate = "";
     await loadAdminRecords();
     $("adminOverview").classList.add("hidden");
@@ -397,7 +394,6 @@ function renderAdminRecords() {
   const memberFilter = $("adminRecordMemberFilter");
   memberFilter.innerHTML = `<option value="">全部成员</option>${state.adminRecordMembers.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
   memberFilter.value = state.adminRecordDraftMemberId;
-  $("adminRecordDateFilter").value = state.adminRecordDraftDate;
   const now = new Date();
   const years = [...new Set([now.getFullYear(), ...state.adminRecords.map((record) => new Date(record.start).getFullYear())])].sort((left, right) => right - left);
   $("adminRecordYearFilter").innerHTML = years.map((year) => `<option value="${year}">${year}年</option>`).join("");
@@ -406,22 +402,10 @@ function renderAdminRecords() {
   $("adminRecordMonthFilter").value = state.adminRecordDraftMonth ?? now.getMonth();
   const records = state.adminRecords.filter((record) => {
     const date = new Date(record.start);
-    return (!state.adminRecordDate || inputDate(record.start) === state.adminRecordDate) && date.getFullYear() === state.adminRecordYear && date.getMonth() === state.adminRecordMonth;
+    return date.getFullYear() === state.adminRecordYear && date.getMonth() === state.adminRecordMonth;
   });
-  const pages = Math.max(1, Math.ceil(records.length / ADMIN_RECORDS_PER_PAGE));
-  state.adminRecordPage = Math.min(state.adminRecordPage, pages);
-  const start = (state.adminRecordPage - 1) * ADMIN_RECORDS_PER_PAGE;
-  const pageRecords = records.slice(start, start + ADMIN_RECORDS_PER_PAGE);
-  $("adminRecordFilterSummary").textContent = `共 ${records.length} 条已完成实训记录 · 每页 10 条`;
+  $("adminRecordFilterSummary").textContent = `当前条件下共 ${records.length} 条已完成实训记录；点击日历日期查看详情。`;
   renderAdminRecordCalendar(records);
-  const groups = new Map();
-  pageRecords.forEach((record) => {
-    const date = inputDate(record.start);
-    if (!groups.has(date)) groups.set(date, []);
-    groups.get(date).push(record);
-  });
-  $("adminRecordGroups").innerHTML = groups.size ? [...groups.entries()].map(([date, items]) => `<section class="admin-record-day"><header><strong>${formatDate(`${date}T00:00:00`)}</strong><span>${items.length} 条记录</span></header><div>${items.map((record) => `<article class="admin-record-card"><div class="admin-record-card-main"><div><strong>${escapeHtml(record.memberName)}</strong><span>${escapeHtml(record.workshop)}</span></div><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><em>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</em></div><div class="admin-record-proof"><figure>${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}<figcaption>开始</figcaption></figure><figure>${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}<figcaption>结束</figcaption></figure></div></article>`).join("")}</div></section>`).join("") : '<section class="admin-section"><p class="admin-empty">没有符合筛选条件的已完成实训记录。</p></section>';
-  $("adminRecordPagination").innerHTML = records.length > ADMIN_RECORDS_PER_PAGE ? `<span>第 ${state.adminRecordPage} / ${pages} 页</span><div><button class="text-button" data-admin-record-page="${state.adminRecordPage - 1}" type="button" ${state.adminRecordPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-admin-record-page="${state.adminRecordPage + 1}" type="button" ${state.adminRecordPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function renderAdminDashboard(data) {
@@ -779,20 +763,16 @@ $("adminMemberRows").addEventListener("click", (event) => {
 $("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordDraftMemberId = event.target.value; });
 $("adminRecordYearFilter").addEventListener("change", (event) => { state.adminRecordDraftYear = Number(event.target.value); });
 $("adminRecordMonthFilter").addEventListener("change", (event) => { state.adminRecordDraftMonth = Number(event.target.value); });
-$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDraftDate = event.target.value; });
 $("applyAdminRecordFilters").addEventListener("click", () => {
   const memberChanged = state.adminRecordMemberId !== state.adminRecordDraftMemberId;
   state.adminRecordMemberId = state.adminRecordDraftMemberId;
-  state.adminRecordDate = state.adminRecordDraftDate;
   state.adminRecordYear = state.adminRecordDraftYear;
   state.adminRecordMonth = state.adminRecordDraftMonth;
-  state.adminRecordPage = 1;
-  state.adminCalendarDate = state.adminRecordDate;
+  state.adminCalendarDate = "";
   if (memberChanged) loadAdminRecords(); else renderAdminRecords();
 });
-$("clearAdminRecordFilters").addEventListener("click", () => { const now = new Date(); state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordDraftMemberId = ""; state.adminRecordDraftDate = ""; state.adminRecordYear = now.getFullYear(); state.adminRecordMonth = now.getMonth(); state.adminRecordDraftYear = state.adminRecordYear; state.adminRecordDraftMonth = state.adminRecordMonth; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
-$("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; state.adminRecordDate = state.adminCalendarDate; state.adminRecordDraftDate = state.adminCalendarDate; state.adminRecordPage = 1; renderAdminRecords(); });
-$("adminRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-record-page]"); if (!button || button.disabled) return; state.adminRecordPage = Number(button.dataset.adminRecordPage); renderAdminRecords(); });
+$("clearAdminRecordFilters").addEventListener("click", () => { const now = new Date(); state.adminRecordMemberId = ""; state.adminRecordDraftMemberId = ""; state.adminRecordYear = now.getFullYear(); state.adminRecordMonth = now.getMonth(); state.adminRecordDraftYear = state.adminRecordYear; state.adminRecordDraftMonth = state.adminRecordMonth; state.adminCalendarDate = ""; loadAdminRecords(); });
+$("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; renderAdminRecords(); });
 $("adminOverviewRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-overview-page]"); if (!button || button.disabled || !state.adminDashboardData) return; state.adminOverviewRecordPage = Number(button.dataset.adminOverviewPage); renderAdminDashboard(state.adminDashboardData); });
 function showChartTooltip(item) {
   const tooltip = $("chartTooltip");
