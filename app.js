@@ -139,6 +139,30 @@ function renderUsernameSuggestions() {
   input.setAttribute("aria-expanded", String(Boolean(matches.length)));
 }
 
+function adminAccountHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("training-admin-account-history") || "[]");
+    return Array.isArray(saved) ? saved.filter((account) => typeof account === "string" && account) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberAdminAccount(account) {
+  const history = [account, ...adminAccountHistory().filter((item) => item !== account)].slice(0, 5);
+  try { localStorage.setItem("training-admin-account-history", JSON.stringify(history)); } catch {}
+}
+
+function renderAdminAccountSuggestions() {
+  const input = $("adminAccount");
+  const list = $("adminAccountSuggestions");
+  const keyword = input.value.trim().toLowerCase();
+  const accounts = [...new Set(["Admin", ...adminAccountHistory()])].filter((account) => !keyword || account.toLowerCase().includes(keyword));
+  list.innerHTML = accounts.map((account) => `<button type="button" role="option" data-admin-account="${escapeHtml(account)}"><strong>${escapeHtml(account)}</strong><span>管理员工作台</span></button>`).join("");
+  list.classList.toggle("hidden", !accounts.length);
+  input.setAttribute("aria-expanded", String(Boolean(accounts.length)));
+}
+
 async function loadDashboard() {
   const data = await request(`/api/members/${encodeURIComponent(state.memberId)}/dashboard`);
   applyDashboard(data);
@@ -351,9 +375,10 @@ function renderAdminDashboard(data) {
 function showAdminLogin() {
   $("identityView").classList.add("hidden");
   $("adminLogin").classList.remove("hidden");
+  $("adminAccount").value = "";
   $("adminPin").value = "";
   $("adminError").textContent = "";
-  $("adminPin").focus();
+  $("adminAccount").focus();
 }
 
 async function leaveAdminDashboard() {
@@ -405,11 +430,24 @@ async function setupIdentity() {
   });
   $("showAdminLogin").addEventListener("click", showAdminLogin);
   $("backToMember").addEventListener("click", () => { $("adminLogin").classList.add("hidden"); $("identityView").classList.remove("hidden"); });
+  $("adminAccount").addEventListener("input", () => { $("adminError").textContent = ""; renderAdminAccountSuggestions(); });
+  $("adminAccount").addEventListener("focus", renderAdminAccountSuggestions);
+  $("adminAccount").addEventListener("blur", () => window.setTimeout(() => { $("adminAccountSuggestions").classList.add("hidden"); $("adminAccount").setAttribute("aria-expanded", "false"); }, 120));
+  $("adminAccountSuggestions").addEventListener("mousedown", (event) => {
+    const option = event.target.closest("button[data-admin-account]");
+    if (!option) return;
+    event.preventDefault();
+    $("adminAccount").value = option.dataset.adminAccount;
+    $("adminAccountSuggestions").classList.add("hidden");
+    $("adminAccount").setAttribute("aria-expanded", "false");
+    $("adminPin").focus();
+  });
   $("adminLoginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
       const data = await request("/api/admin/login", { method: "POST", body: JSON.stringify({ account: $("adminAccount").value.trim(), pin: $("adminPin").value.trim() }) });
       state.adminToken = data.token;
+      rememberAdminAccount(data.account);
       await loadAdminDashboard();
       $("adminError").textContent = "";
       $("adminLogin").classList.add("hidden");

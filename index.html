@@ -53,7 +53,8 @@
           <form id="adminLoginForm" class="identity-form">
             <label>
               <span>管理员账号</span>
-              <input id="adminAccount" autocomplete="username" placeholder="请输入管理员账号" required />
+              <input id="adminAccount" autocomplete="off" placeholder="请输入管理员账号" required aria-autocomplete="list" aria-controls="adminAccountSuggestions" aria-expanded="false" />
+              <div class="username-suggestions hidden" id="adminAccountSuggestions" role="listbox" aria-label="管理员账号历史"></div>
             </label>
             <label>
               <span>6 位 PIN</span>
