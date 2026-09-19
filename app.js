@@ -57,9 +57,9 @@ function formatChartHours(minutes) {
   return `${Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1)}小时`;
 }
 
-function chartScaleMax(values) {
+function chartScaleMax(values, headroom = 1.15) {
   const highest = Math.max(...values, 1);
-  return Math.max(30, Math.ceil((highest * 1.15) / 30) * 30);
+  return Math.max(30, Math.ceil((highest * headroom) / 30) * 30);
 }
 
 function chartLabelIndexes(length, maximum = 7) {
@@ -113,8 +113,8 @@ function renderBarChart(values, labels, shortLabels = labels) {
   return `<div class="chart-scroll" tabindex="0" aria-label="可左右滚动查看所选月份全部日期"><svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="所选月份每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg></div>`;
 }
 
-function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图", shortLabels = labels) {
-  const max = chartScaleMax(values);
+function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图", shortLabels = labels, headroom = 1.15) {
+  const max = chartScaleMax(values, headroom);
   const width = 520;
   const height = 220;
   const plot = { left: 38, right: 14, top: 18, bottom: 34 };
@@ -342,7 +342,7 @@ function renderAdminVisualization(visualization, now) {
   $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，完成 ${completed} 次；最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
   const currentMonth = new Date(now);
   const dailyDates = daily.map((item) => new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day));
-  $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), dailyDates.map(chartDateLabel), "本月全员每日实训时长趋势图", daily.map((item) => `${item.day}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
+  $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), dailyDates.map(chartDateLabel), "本月全员每日实训时长趋势图", daily.map((item) => `${item.day}日`), 1.25) : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
   const ranking = safeVisualization.ranking || [];
   const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
   $("adminRankingChart").innerHTML = ranking.length ? `<div class="admin-chart-list-scroll"><div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无排名数据。</p>';
