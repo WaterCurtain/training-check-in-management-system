@@ -165,26 +165,30 @@ function isAdmin(request) {
   return authorization.startsWith("Bearer ") && adminSessions.has(authorization.slice(7));
 }
 
-function adminOverview() {
+function adminOverview(year, month) {
   const now = new Date();
+  const selectedYear = Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : now.getFullYear();
+  const selectedMonth = Number.isInteger(month) && month >= 0 && month <= 11 ? month : now.getMonth();
+  const isCurrentPeriod = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
   const allMembers = statements.allMembers.all();
   const members = allMembers.filter((member) => member.active);
   const sessions = statements.allSessions.all();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthStart = new Date(selectedYear, selectedMonth, 1);
+  const nextMonth = new Date(selectedYear, selectedMonth + 1, 1);
   const goalMinutes = 16 * 60;
   const memberStats = members.map((member) => {
     const memberSessions = sessions.filter((session) => session.member_id === member.id);
     const monthMinutes = memberSessions.reduce((total, session) => total + minutesInRange(session, monthStart, nextMonth, now), 0);
-    const active = memberSessions.find((session) => session.status === "training");
+    const active = isCurrentPeriod ? memberSessions.find((session) => session.status === "training") : null;
     return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
-  const elapsedDays = Math.max(1, now.getDate());
+  const elapsedDays = isCurrentPeriod ? Math.max(1, now.getDate()) : new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const averageDailyMinutes = members.length ? Math.round(monthMinutes / members.length / elapsedDays) : 0;
   const memberInfo = new Map(allMembers.map((member) => [member.id, member]));
   const daily = [];
-  for (let cursor = new Date(monthStart); cursor < nextMonth; cursor.setDate(cursor.getDate() + 1)) {
+  const rangeEnd = isCurrentPeriod ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) : nextMonth;
+  for (let cursor = new Date(monthStart); cursor < rangeEnd; cursor.setDate(cursor.getDate() + 1)) {
     const dayStart = new Date(cursor);
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
     const daySessions = sessions.filter((session) => session.status === "completed" && minutesInRange(session, dayStart, dayEnd, now) > 0);
@@ -192,15 +196,18 @@ function adminOverview() {
   }
   return {
     now: now.toISOString(),
+    selectedYear,
+    selectedMonth,
+    availableYears: [...new Set([now.getFullYear(), ...sessions.map((session) => new Date(session.started_at).getFullYear())])].sort((left, right) => right - left),
     summary: {
       monthMinutes,
       averageDailyMinutes,
       goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
       activeMembers: memberStats.filter((member) => member.active).length,
-      completedSessions: sessions.filter((session) => session.status === "completed").length,
+      completedSessions: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length,
     },
     members: memberStats,
-    recentRecords: sessions.filter((session) => session.status === "completed").map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
+    recentRecords: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
     visualization: {
       daily,
       ranking: [...memberStats].sort((left, right) => right.monthMinutes - left.monthMinutes).map((member) => ({ id: member.id, name: member.name, minutes: member.monthMinutes })),
@@ -316,7 +323,8 @@ async function handleApi(request, response, pathname) {
   }
   if (request.method === "GET" && pathname === "/api/admin/overview") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
-    return sendJson(response, 200, adminOverview());
+    const query = new URL(request.url, `http://${request.headers.host || "localhost"}`).searchParams;
+    return sendJson(response, 200, adminOverview(Number(query.get("year")), Number(query.get("month")) - 1));
   }
   if (request.method === "GET" && pathname === "/api/admin/records") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
