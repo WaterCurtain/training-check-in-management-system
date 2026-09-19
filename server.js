@@ -1,5 +1,5 @@
 const { createServer } = require("node:http");
-const { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } = require("node:fs");
+const { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync, copyFileSync } = require("node:fs");
 const path = require("node:path");
 const { randomUUID, createHash } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
@@ -53,9 +53,31 @@ const seedMember = database.prepare("INSERT OR IGNORE INTO members (id, name, wo
   ["zhangwei", "张伟", "炼钢维修车间", DEFAULT_MEMBER_PIN_HASH],
   ["liang", "李昂", "精炼连铸维修车间", DEFAULT_MEMBER_PIN_HASH],
   ["wangyu", "王宇", "轧钢维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-chenhao", "陈浩", "炼钢维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-sunli", "孙莉", "精炼连铸维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-zhouming", "周明", "轧钢维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-wuqian", "吴倩", "行车车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-liujun", "刘军", "炼钢维修车间", DEFAULT_MEMBER_PIN_HASH],
+  ["demo-gaoning", "高宁", "精炼连铸维修车间", DEFAULT_MEMBER_PIN_HASH],
 ].forEach((member) => seedMember.run(...member));
 const updateSeedWorkshop = database.prepare("UPDATE members SET workshop = ? WHERE id = ? AND workshop = ?");
 [["炼钢维修车间", "zhangwei", "仪控维修一组"], ["精炼连铸维修车间", "liang", "电气维修二组"], ["轧钢维修车间", "wangyu", "自动化实训组"]].forEach((member) => updateSeedWorkshop.run(...member));
+
+const demoSourcePhoto = path.join(ROOT, "design-assets", "training-system-ui-concept.png");
+const seedDemoSession = database.prepare("INSERT OR IGNORE INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)");
+const demoMemberIds = ["demo-chenhao", "demo-sunli", "demo-zhouming", "demo-wuqian", "demo-liujun", "demo-gaoning"];
+const demoNow = new Date();
+demoMemberIds.forEach((memberId, memberIndex) => {
+  for (let recordIndex = 0; recordIndex < 4; recordIndex += 1) {
+    const offset = (memberIndex * 3 + recordIndex * 2) % Math.max(demoNow.getDate(), 1);
+    const startedAt = new Date(demoNow.getFullYear(), demoNow.getMonth(), Math.max(1, demoNow.getDate() - offset), 8 + (memberIndex + recordIndex) % 5, recordIndex % 2 ? 20 : 0);
+    const endedAt = new Date(startedAt.getTime() + (75 + ((memberIndex * 23 + recordIndex * 17) % 105)) * 60 * 1000);
+    const id = `demo-${demoNow.getFullYear()}-${demoNow.getMonth() + 1}-${memberId}-${recordIndex}`;
+    const demoPhoto = path.join(PHOTO_DIR, `${id}.png`);
+    if (!existsSync(demoPhoto) && existsSync(demoSourcePhoto)) copyFileSync(demoSourcePhoto, demoPhoto);
+    seedDemoSession.run(id, memberId, startedAt.toISOString(), endedAt.toISOString(), demoPhoto, demoPhoto, startedAt.toISOString());
+  }
+});
 
 const statements = {
   members: database.prepare("SELECT id, name, workshop FROM members WHERE active = 1 ORDER BY id"),
@@ -158,12 +180,13 @@ function adminOverview() {
     return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
-  const names = new Map(allMembers.map((member) => [member.id, member.name]));
+  const memberInfo = new Map(allMembers.map((member) => [member.id, member]));
   const daily = [];
   for (let cursor = new Date(monthStart); cursor < nextMonth; cursor.setDate(cursor.getDate() + 1)) {
     const dayStart = new Date(cursor);
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-    daily.push({ day: dayStart.getDate(), minutes: sessions.reduce((total, session) => total + minutesInRange(session, dayStart, dayEnd, now), 0) });
+    const daySessions = sessions.filter((session) => session.status === "completed" && minutesInRange(session, dayStart, dayEnd, now) > 0);
+    daily.push({ day: dayStart.getDate(), minutes: sessions.reduce((total, session) => total + minutesInRange(session, dayStart, dayEnd, now), 0), count: daySessions.length, members: new Set(daySessions.map((session) => session.member_id)).size });
   }
   return {
     now: now.toISOString(),
@@ -174,7 +197,7 @@ function adminOverview() {
       completedSessions: sessions.filter((session) => session.status === "completed").length,
     },
     members: memberStats,
-    recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 8).map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id) })),
+    recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 10).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
     visualization: {
       daily,
       ranking: [...memberStats].sort((left, right) => right.monthMinutes - left.monthMinutes).map((member) => ({ id: member.id, name: member.name, minutes: member.monthMinutes })),
@@ -257,6 +280,18 @@ function serveFile(response, filePath) {
 
 async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/members") return sendJson(response, 200, { members: statements.members.all() });
+  if (request.method === "POST" && pathname === "/api/login") {
+    const body = await readJson(request);
+    const account = typeof body.name === "string" ? body.name.trim() : "";
+    if (account === ADMIN_ACCOUNT && body.pin === ADMIN_PIN) {
+      const token = randomUUID();
+      adminSessions.add(token);
+      return sendJson(response, 200, { role: "admin", token, account: ADMIN_ACCOUNT });
+    }
+    const member = statements.memberByName.get(account);
+    if (!member || member.pin_hash !== memberPin(body.pin, true)) return sendError(response, 401, "账号或 PIN 不正确。");
+    return sendJson(response, 200, { role: "member", ...dashboard(member.id) });
+  }
   if (request.method === "POST" && pathname === "/api/members/login") {
     const body = await readJson(request);
     const name = typeof body.name === "string" ? body.name.trim() : "";

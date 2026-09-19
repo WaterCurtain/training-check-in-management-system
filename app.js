@@ -1,4 +1,5 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "" };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordPage: 1, adminCalendarDate: "" };
+const ADMIN_RECORDS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -133,34 +134,11 @@ function renderUsernameSuggestions() {
   const input = $("usernameInput");
   const list = $("usernameSuggestions");
   const keyword = input.value.trim();
-  const matches = keyword ? state.members.filter((member) => member.name.includes(keyword)).slice(0, 6) : [];
-  list.innerHTML = matches.map((member) => `<button type="button" role="option" data-member-name="${escapeHtml(member.name)}"><strong>${escapeHtml(member.name)}</strong><span>${escapeHtml(member.workshop)}</span></button>`).join("");
+  const accounts = [...state.members, { name: "Admin", workshop: "管理员工作台" }];
+  const matches = keyword ? accounts.filter((account) => account.name.toLowerCase().includes(keyword.toLowerCase())).slice(0, 6) : [];
+  list.innerHTML = matches.map((account) => `<button type="button" role="option" data-member-name="${escapeHtml(account.name)}"><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.workshop)}</span></button>`).join("");
   list.classList.toggle("hidden", !matches.length);
   input.setAttribute("aria-expanded", String(Boolean(matches.length)));
-}
-
-function adminAccountHistory() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("training-admin-account-history") || "[]");
-    return Array.isArray(saved) ? saved.filter((account) => typeof account === "string" && account) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberAdminAccount(account) {
-  const history = [account, ...adminAccountHistory().filter((item) => item !== account)].slice(0, 5);
-  try { localStorage.setItem("training-admin-account-history", JSON.stringify(history)); } catch {}
-}
-
-function renderAdminAccountSuggestions() {
-  const input = $("adminAccount");
-  const list = $("adminAccountSuggestions");
-  const keyword = input.value.trim().toLowerCase();
-  const accounts = [...new Set(["Admin", ...adminAccountHistory()])].filter((account) => !keyword || account.toLowerCase().includes(keyword));
-  list.innerHTML = accounts.map((account) => `<button type="button" role="option" data-admin-account="${escapeHtml(account)}"><strong>${escapeHtml(account)}</strong><span>管理员工作台</span></button>`).join("");
-  list.classList.toggle("hidden", !accounts.length);
-  input.setAttribute("aria-expanded", String(Boolean(accounts.length)));
 }
 
 async function loadDashboard() {
@@ -222,6 +200,8 @@ async function showAdminRecords(memberId = "") {
   try {
     state.adminRecordMemberId = memberId;
     state.adminRecordDate = "";
+    state.adminRecordPage = 1;
+    state.adminCalendarDate = "";
     await loadAdminRecords();
     $("adminOverview").classList.add("hidden");
     $("memberManagement").classList.add("hidden");
@@ -327,7 +307,8 @@ function renderAdminVisualization(visualization) {
   const safeVisualization = visualization || { daily: [], ranking: [], frequency: [], reachedMembers: 0, remainingMembers: 0 };
   const daily = safeVisualization.daily || [];
   const total = daily.reduce((sum, item) => sum + item.minutes, 0);
-  $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
+  const completed = daily.reduce((sum, item) => sum + (item.count || 0), 0);
+  $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，完成 ${completed} 次；最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
   $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), daily.map((item) => `${item.day}日`), "本月全员每日实训时长趋势图") : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
   const ranking = safeVisualization.ranking || [];
   const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
@@ -340,20 +321,65 @@ function renderAdminVisualization(visualization) {
   $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
 }
 
+function adminPhotoButton(url, label) {
+  return `<button class="record-photo-preview" type="button" data-photo-url="${escapeHtml(url)}" data-photo-label="${escapeHtml(label)}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></button>`;
+}
+
+function renderAdminRecordCalendar(records) {
+  const baseDate = new Date(records[0]?.start || Date.now());
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
+  const recordsByDate = new Map();
+  records.filter((record) => {
+    const date = new Date(record.start);
+    return date.getFullYear() === year && date.getMonth() === month;
+  }).forEach((record) => {
+    const date = inputDate(record.start);
+    if (!recordsByDate.has(date)) recordsByDate.set(date, []);
+    recordsByDate.get(date).push(record);
+  });
+  const dates = [...recordsByDate.keys()].sort();
+  if (!state.adminCalendarDate || !recordsByDate.has(state.adminCalendarDate)) state.adminCalendarDate = dates.at(-1) || "";
+  const member = state.adminRecordMembers.find((item) => item.id === state.adminRecordMemberId);
+  $("adminRecordCalendarTitle").textContent = member ? `${member.name}的训练日历` : "成员训练日历";
+  $("adminRecordCalendarSummary").textContent = dates.length ? `${year}年${month + 1}月共 ${dates.length} 个训练日；点击日期可同步筛选下方记录。` : "当前筛选条件下暂无可索引的实训记录。";
+  const weekdays = ["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span class="calendar-weekday">${day}</span>`).join("");
+  const blanks = Array.from({ length: leadingDays }, () => '<span class="calendar-blank" aria-hidden="true"></span>').join("");
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const items = recordsByDate.get(date) || [];
+    const minutes = items.reduce((total, record) => total + (new Date(record.end) - new Date(record.start)) / 60000, 0);
+    return `<button class="calendar-day${items.length ? " has-record" : ""}${date === state.adminCalendarDate ? " is-selected" : ""}" type="button" data-admin-calendar-date="${date}" ${items.length ? "" : "disabled"}><strong>${day}</strong>${items.length ? `<span>${items.length} 次 · ${formatMinutes(minutes)}</span><i aria-hidden="true"></i>` : ""}</button>`;
+  }).join("");
+  $("adminRecordCalendar").innerHTML = weekdays + blanks + days;
+  const selected = recordsByDate.get(state.adminCalendarDate) || [];
+  const selectedMinutes = selected.reduce((total, record) => total + (new Date(record.end) - new Date(record.start)) / 60000, 0);
+  $("adminRecordCalendarDetail").innerHTML = selected.length ? `<header><div><h3>${formatDate(`${state.adminCalendarDate}T00:00:00`)}</h3><p>${selected.length} 条实训记录 · 共 ${formatMinutes(selectedMinutes)}</p></div></header><div class="calendar-record-list">${selected.map((record) => `<article><div><strong>${escapeHtml(record.memberName)} · ${escapeHtml(record.workshop)}</strong><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><span>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</span></div><div class="calendar-record-media">${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}</div></article>`).join("")}</div>` : '<p class="calendar-empty">选择有蓝点的日期，查看当天的实训记录。</p>';
+}
+
 function renderAdminRecords() {
   const memberFilter = $("adminRecordMemberFilter");
   memberFilter.innerHTML = `<option value="">全部成员</option>${state.adminRecordMembers.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
   memberFilter.value = state.adminRecordMemberId;
   $("adminRecordDateFilter").value = state.adminRecordDate;
   const records = state.adminRecords.filter((record) => !state.adminRecordDate || inputDate(record.start) === state.adminRecordDate);
-  $("adminRecordFilterSummary").textContent = `共 ${records.length} 条已完成实训记录`;
+  const pages = Math.max(1, Math.ceil(records.length / ADMIN_RECORDS_PER_PAGE));
+  state.adminRecordPage = Math.min(state.adminRecordPage, pages);
+  const start = (state.adminRecordPage - 1) * ADMIN_RECORDS_PER_PAGE;
+  const pageRecords = records.slice(start, start + ADMIN_RECORDS_PER_PAGE);
+  $("adminRecordFilterSummary").textContent = `共 ${records.length} 条已完成实训记录 · 每页 10 条`;
+  renderAdminRecordCalendar(state.adminRecords);
   const groups = new Map();
-  records.forEach((record) => {
+  pageRecords.forEach((record) => {
     const date = inputDate(record.start);
     if (!groups.has(date)) groups.set(date, []);
     groups.get(date).push(record);
   });
-  $("adminRecordGroups").innerHTML = groups.size ? [...groups.entries()].map(([date, items]) => `<section class="admin-record-day"><header><strong>${formatDate(`${date}T00:00:00`)}</strong><span>${items.length} 条记录</span></header><div>${items.map((record) => `<article class="admin-record-card"><div class="admin-record-card-main"><div><strong>${escapeHtml(record.memberName)}</strong><span>${escapeHtml(record.workshop)}</span></div><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><em>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</em></div><div class="admin-record-proof"><figure><img src="${escapeHtml(record.startPhoto)}" alt="${escapeHtml(record.memberName)}的开始现场照片" /><figcaption>开始</figcaption></figure><figure><img src="${escapeHtml(record.endPhoto)}" alt="${escapeHtml(record.memberName)}的结束现场照片" /><figcaption>结束</figcaption></figure></div></article>`).join("")}</div></section>`).join("") : '<section class="admin-section"><p class="admin-empty">没有符合筛选条件的已完成实训记录。</p></section>';
+  $("adminRecordGroups").innerHTML = groups.size ? [...groups.entries()].map(([date, items]) => `<section class="admin-record-day"><header><strong>${formatDate(`${date}T00:00:00`)}</strong><span>${items.length} 条记录</span></header><div>${items.map((record) => `<article class="admin-record-card"><div class="admin-record-card-main"><div><strong>${escapeHtml(record.memberName)}</strong><span>${escapeHtml(record.workshop)}</span></div><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><em>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</em></div><div class="admin-record-proof"><figure>${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}<figcaption>开始</figcaption></figure><figure>${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}<figcaption>结束</figcaption></figure></div></article>`).join("")}</div></section>`).join("") : '<section class="admin-section"><p class="admin-empty">没有符合筛选条件的已完成实训记录。</p></section>';
+  $("adminRecordPagination").innerHTML = records.length > ADMIN_RECORDS_PER_PAGE ? `<span>第 ${state.adminRecordPage} / ${pages} 页</span><div><button class="text-button" data-admin-record-page="${state.adminRecordPage - 1}" type="button" ${state.adminRecordPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-admin-record-page="${state.adminRecordPage + 1}" type="button" ${state.adminRecordPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function renderAdminDashboard(data) {
@@ -369,16 +395,19 @@ function renderAdminDashboard(data) {
     return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${Math.round(member.monthMinutes / member.goalMinutes * 100)}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td><td><button class="text-button admin-member-records" data-member-id="${escapeHtml(member.id)}" type="button">查看记录</button></td></tr>`;
   }).join("");
   renderAdminVisualization(data.visualization);
-  $("adminRecords").innerHTML = data.recentRecords.length ? data.recentRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)}</strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos"><img src="${record.startPhoto}" alt="${escapeHtml(record.memberName)}的开始现场照片" /><img src="${record.endPhoto}" alt="${escapeHtml(record.memberName)}的结束现场照片" /></div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
+  $("adminRecords").innerHTML = data.recentRecords.length ? data.recentRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)} <span class="admin-record-workshop">${escapeHtml(record.workshop || "未设置车间")}</span></strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos">${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}</div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
 }
 
-function showAdminLogin() {
-  $("identityView").classList.add("hidden");
-  $("adminLogin").classList.remove("hidden");
-  $("adminAccount").value = "";
-  $("adminPin").value = "";
-  $("adminError").textContent = "";
-  $("adminAccount").focus();
+function openPhotoLightbox(url, label) {
+  $("photoLightboxImage").src = url;
+  $("photoLightboxImage").alt = label;
+  $("photoLightboxLabel").textContent = label;
+  $("photoLightbox").classList.remove("hidden");
+  $("closePhotoLightbox").focus();
+}
+
+function closePhotoLightbox() {
+  $("photoLightbox").classList.add("hidden");
 }
 
 async function leaveAdminDashboard() {
@@ -404,14 +433,21 @@ async function setupIdentity() {
     if (!name) { $("identityError").textContent = "请输入用户名后再登录。"; $("usernameInput").focus(); return; }
     if (!pin) { $("identityError").textContent = "请输入 6 位 PIN 后再登录。"; $("pinInput").focus(); return; }
     try {
-      const data = await request("/api/members/login", { method: "POST", body: JSON.stringify({ name, pin }) });
-      state.memberId = data.member.id;
-      applyDashboard(data);
-      state.showAllRecords = false;
-      state.selectedCalendarDate = "";
+      const data = await request("/api/login", { method: "POST", body: JSON.stringify({ name, pin }) });
       $("identityError").textContent = "";
-      $("identityView").classList.add("hidden");
-      $("dashboard").classList.remove("hidden");
+      if (data.role === "admin") {
+        state.adminToken = data.token;
+        await loadAdminDashboard();
+        $("identityView").classList.add("hidden");
+        $("adminDashboard").classList.remove("hidden");
+      } else {
+        state.memberId = data.member.id;
+        applyDashboard(data);
+        state.showAllRecords = false;
+        state.selectedCalendarDate = "";
+        $("identityView").classList.add("hidden");
+        $("dashboard").classList.remove("hidden");
+      }
     } catch (error) {
       $("identityError").textContent = `无法登录：${serviceErrorMessage(error)}`;
     }
@@ -427,34 +463,6 @@ async function setupIdentity() {
     $("usernameSuggestions").classList.add("hidden");
     $("usernameInput").setAttribute("aria-expanded", "false");
     $("pinInput").focus();
-  });
-  $("showAdminLogin").addEventListener("click", showAdminLogin);
-  $("backToMember").addEventListener("click", () => { $("adminLogin").classList.add("hidden"); $("identityView").classList.remove("hidden"); });
-  $("adminAccount").addEventListener("input", () => { $("adminError").textContent = ""; renderAdminAccountSuggestions(); });
-  $("adminAccount").addEventListener("focus", renderAdminAccountSuggestions);
-  $("adminAccount").addEventListener("blur", () => window.setTimeout(() => { $("adminAccountSuggestions").classList.add("hidden"); $("adminAccount").setAttribute("aria-expanded", "false"); }, 120));
-  $("adminAccountSuggestions").addEventListener("mousedown", (event) => {
-    const option = event.target.closest("button[data-admin-account]");
-    if (!option) return;
-    event.preventDefault();
-    $("adminAccount").value = option.dataset.adminAccount;
-    $("adminAccountSuggestions").classList.add("hidden");
-    $("adminAccount").setAttribute("aria-expanded", "false");
-    $("adminPin").focus();
-  });
-  $("adminLoginForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      const data = await request("/api/admin/login", { method: "POST", body: JSON.stringify({ account: $("adminAccount").value.trim(), pin: $("adminPin").value.trim() }) });
-      state.adminToken = data.token;
-      rememberAdminAccount(data.account);
-      await loadAdminDashboard();
-      $("adminError").textContent = "";
-      $("adminLogin").classList.add("hidden");
-      $("adminDashboard").classList.remove("hidden");
-    } catch (error) {
-      $("adminError").textContent = serviceErrorMessage(error);
-    }
   });
 }
 
@@ -575,7 +583,7 @@ function renderCalendar() {
   $("trainingCalendar").innerHTML = weekdays + blanks + days;
   const selectedRecords = recordsByDate.get(state.selectedCalendarDate) || [];
   const selectedMinutes = selectedRecords.reduce((total, record) => total + (new Date(record.end) - new Date(record.start)) / 60000, 0);
-  $("calendarDetail").innerHTML = selectedRecords.length ? `<header><div><h3>${formatDate(`${state.selectedCalendarDate}T00:00:00`)}</h3><p>${selectedRecords.length} 条实训记录 · 共 ${formatMinutes(selectedMinutes)}</p></div><div class="calendar-mini-chart" aria-label="当天训练时长 ${formatMinutes(selectedMinutes)}"><i style="--calendar-hours:${Math.min(selectedMinutes / 480, 1)}"></i><span>${formatChartHours(selectedMinutes)}</span></div></header><div class="calendar-record-list">${selectedRecords.map((record) => `<article><div><strong>现场实训记录</strong><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><span>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</span></div><div class="calendar-record-media"><img src="${escapeHtml(record.startPhoto)}" alt="开始现场照片" /><img src="${escapeHtml(record.endPhoto)}" alt="结束现场照片" /></div></article>`).join("")}</div>` : '<p class="calendar-empty">选择有蓝点的日期，即可查看当天的实训文字记录和现场照片。</p>';
+  $("calendarDetail").innerHTML = selectedRecords.length ? `<header><div><h3>${formatDate(`${state.selectedCalendarDate}T00:00:00`)}</h3><p>${selectedRecords.length} 条实训记录 · 共 ${formatMinutes(selectedMinutes)}</p></div><div class="calendar-mini-chart" aria-label="当天训练时长 ${formatMinutes(selectedMinutes)}"><i style="--calendar-hours:${Math.min(selectedMinutes / 480, 1)}"></i><span>${formatChartHours(selectedMinutes)}</span></div></header><div class="calendar-record-list">${selectedRecords.map((record) => `<article><div><strong>现场实训记录</strong><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><span>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</span></div><div class="calendar-record-media">${adminPhotoButton(record.startPhoto, "开始现场照片")}${adminPhotoButton(record.endPhoto, "结束现场照片")}</div></article>`).join("")}</div>` : '<p class="calendar-empty">选择有蓝点的日期，即可查看当天的实训文字记录和现场照片。</p>';
 }
 
 function renderRecords() {
@@ -585,7 +593,7 @@ function renderRecords() {
     const start = new Date(record.start);
     const end = new Date(record.end);
     const day = `${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
-    return `<article class="record-item"><span class="record-date">${day}</span><div class="record-main"><strong>本次实训记录</strong><p>${formatClock(start)} 开始 · ${formatClock(end)} 结束</p></div><div class="record-times"><span>${formatMinutes((end - start) / 60000)}</span><span class="record-status">正常</span></div><div class="record-media"><img src="${record.startPhoto}" alt="开始现场照片" /><img src="${record.endPhoto}" alt="结束现场照片" /></div></article>`;
+    return `<article class="record-item"><span class="record-date">${day}</span><div class="record-main"><strong>本次实训记录</strong><p>${formatClock(start)} 开始 · ${formatClock(end)} 结束</p></div><div class="record-times"><span>${formatMinutes((end - start) / 60000)}</span><span class="record-status">正常</span></div><div class="record-media">${adminPhotoButton(record.startPhoto, "开始现场照片")}${adminPhotoButton(record.endPhoto, "结束现场照片")}</div></article>`;
   }).join("") : '<p class="empty-records">暂无已完成的实训记录。完成一次签到后，照片和时长会在这里保留。</p>';
 }
 
@@ -695,8 +703,15 @@ $("adminMemberRows").addEventListener("click", (event) => {
   if (memberId && event.target.classList.contains("admin-member-records")) showAdminRecords(memberId);
 });
 $("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordMemberId = event.target.value; state.adminRecordDate = ""; loadAdminRecords(); });
-$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDate = event.target.value; renderAdminRecords(); });
-$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; loadAdminRecords(); });
+$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDate = event.target.value; state.adminRecordPage = 1; renderAdminRecords(); });
+$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
+$("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; state.adminRecordDate = state.adminCalendarDate; state.adminRecordPage = 1; renderAdminRecords(); });
+$("adminRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-record-page]"); if (!button || button.disabled) return; state.adminRecordPage = Number(button.dataset.adminRecordPage); renderAdminRecords(); });
+$("adminDashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
+$("dashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
+$("closePhotoLightbox").addEventListener("click", closePhotoLightbox);
+$("photoLightboxBackdrop").addEventListener("click", closePhotoLightbox);
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("photoLightbox").classList.contains("hidden")) closePhotoLightbox(); });
 $("addMember").addEventListener("click", () => openMemberSheet());
 $("closeMemberSheet").addEventListener("click", closeMemberSheet);
 $("memberSheetBackdrop").addEventListener("click", closeMemberSheet);

@@ -61,6 +61,10 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   assert.equal(login.status, 200);
   const { token } = await login.json();
 
+  const unifiedAdmin = await fetch(`${baseUrl}/api/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Admin", pin: "123456" }) });
+  assert.equal(unifiedAdmin.status, 200);
+  assert.equal((await unifiedAdmin.json()).role, "admin");
+
   const overview = await fetch(`${baseUrl}/api/admin/overview`, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(overview.status, 200);
   const data = await overview.json();
@@ -82,6 +86,10 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
 
   const memberLogin = await fetch(`${baseUrl}/api/members/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "临时成员", pin: "654321" }) });
   assert.equal(memberLogin.status, 200);
+
+  const unifiedMember = await fetch(`${baseUrl}/api/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "临时成员", pin: "654321" }) });
+  assert.equal(unifiedMember.status, 200);
+  assert.equal((await unifiedMember.json()).role, "member");
 
   const edited = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "已编辑成员", workshop: "轧钢维修车间", pin: "111111" }) });
   assert.equal(edited.status, 200);

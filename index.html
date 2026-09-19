@@ -18,13 +18,13 @@
         <div class="identity-panel">
           <div class="panel-copy">
             <h1 id="identityTitle">开始今天的实训</h1>
-            <p>输入用户名（姓名）与 PIN 后，即可记录本次实训现场与时长。</p>
+            <p>输入账号与 PIN 后，系统会自动进入对应的实训工作台。</p>
           </div>
           <form id="identityForm" class="identity-form" novalidate>
             <label>
-              <span>用户名（姓名）</span>
-              <input id="usernameInput" autocomplete="off" maxlength="32" placeholder="请输入用户名" required aria-autocomplete="list" aria-controls="usernameSuggestions" aria-expanded="false" />
-              <div class="username-suggestions hidden" id="usernameSuggestions" role="listbox" aria-label="可登录用户名"></div>
+              <span>账号</span>
+              <input id="usernameInput" autocomplete="off" maxlength="32" placeholder="请输入账号" required aria-autocomplete="list" aria-controls="usernameSuggestions" aria-expanded="false" />
+              <div class="username-suggestions hidden" id="usernameSuggestions" role="listbox" aria-label="站内账号历史"></div>
             </label>
             <label>
               <span>6 位 PIN</span>
@@ -34,36 +34,7 @@
             <p class="form-error identity-error" id="identityError" role="alert"></p>
             <button class="primary-button" type="submit">登录</button>
           </form>
-          <button class="admin-entry" id="showAdminLogin" type="button">管理员入口</button>
-          <p class="demo-note">本地服务会保存实训时间与照片；账号由管理员在人员管理中维护。</p>
-        </div>
-      </section>
-
-      <section class="identity-view hidden" id="adminLogin" aria-labelledby="adminLoginTitle">
-        <div class="identity-visual admin-visual" aria-hidden="true">
-          <div class="brand-mark"><span></span><span></span><span></span></div>
-          <p>电气仪控实训室</p>
-          <small>训练总览 · 管理员工作台</small>
-        </div>
-        <div class="identity-panel">
-          <div class="panel-copy">
-            <h1 id="adminLoginTitle">进入管理工作台</h1>
-            <p>查看全员训练进度、进行中实训和近期签到记录。</p>
-          </div>
-          <form id="adminLoginForm" class="identity-form">
-            <label>
-              <span>管理员账号</span>
-              <input id="adminAccount" autocomplete="off" placeholder="请输入管理员账号" required aria-autocomplete="list" aria-controls="adminAccountSuggestions" aria-expanded="false" />
-              <div class="username-suggestions hidden" id="adminAccountSuggestions" role="listbox" aria-label="管理员账号历史"></div>
-            </label>
-            <label>
-              <span>6 位 PIN</span>
-              <input id="adminPin" inputmode="numeric" maxlength="6" autocomplete="current-password" placeholder="请输入 6 位 PIN" required />
-            </label>
-            <p class="form-error" id="adminError" role="alert"></p>
-            <button class="primary-button" type="submit">登录</button>
-          </form>
-          <button class="admin-entry" id="backToMember" type="button">返回成员签到</button>
+          <p class="demo-note">本地服务会保存实训时间与照片；成员账号由管理员在人员管理中维护。</p>
         </div>
       </section>
 
@@ -205,9 +176,9 @@
             <article><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
           </section>
           <section class="admin-visuals" aria-labelledby="adminVisualsTitle">
-            <div class="admin-section-heading"><div><h2 id="adminVisualsTitle">本月训练数据</h2><p>统计范围为全员有效实训记录，按服务器时间自动汇总。</p></div></div>
+            <div class="admin-section-heading"><div><h2 id="adminVisualsTitle">本月训练数据</h2><p>用时长、完成次数与参与人数识别本月的训练高峰和空档。</p></div></div>
             <div class="admin-chart-wide">
-              <div class="chart-heading"><div><h3>每日实训趋势</h3><p id="adminDailySummary">本月尚无实训记录</p></div><span>单位：小时</span></div>
+              <div class="chart-heading"><div><h3>实训活跃度趋势</h3><p id="adminDailySummary">按日汇总全员有效实训时长</p></div><span>单位：小时</span></div>
               <div class="chart-canvas" id="adminDailyChart"></div>
             </div>
             <div class="admin-chart-grid">
@@ -221,7 +192,7 @@
             <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度</th><th>实训状态</th><th>记录</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
           </section>
           <section class="admin-section" aria-labelledby="adminRecordsTitle">
-            <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最近完成的记录会关联开始与结束照片。</p></div></div>
+            <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最多展示 10 条；包含所属车间，点击照片可查看大图。</p></div></div>
             <div class="admin-records" id="adminRecords"></div>
           </section>
         </main>
@@ -238,7 +209,13 @@
               <button class="text-button" id="clearAdminRecordFilters" type="button">清除筛选</button>
             </div>
           </section>
+          <section class="admin-section admin-record-calendar-section" aria-labelledby="adminRecordCalendarTitle">
+            <div class="admin-section-heading"><div><h2 id="adminRecordCalendarTitle">成员训练日历</h2><p id="adminRecordCalendarSummary">加载中</p></div></div>
+            <div class="training-calendar admin-training-calendar" id="adminRecordCalendar" aria-label="成员实训日历"></div>
+            <section class="calendar-detail" id="adminRecordCalendarDetail" aria-live="polite"></section>
+          </section>
           <div class="admin-record-groups" id="adminRecordGroups"></div>
+          <div class="admin-record-pagination" id="adminRecordPagination"></div>
         </main>
         <main class="admin-main hidden" id="memberManagement">
           <header class="admin-header">
@@ -293,6 +270,15 @@
           <button class="primary-button" id="saveMember" type="submit">保存成员</button>
         </form>
       </div>
+    </section>
+
+    <section class="photo-lightbox hidden" id="photoLightbox" aria-modal="true" role="dialog" aria-labelledby="photoLightboxLabel">
+      <div class="sheet-backdrop" id="photoLightboxBackdrop"></div>
+      <figure class="photo-lightbox-card">
+        <button class="close-button" id="closePhotoLightbox" aria-label="关闭大图">×</button>
+        <img id="photoLightboxImage" alt="实训现场照片大图" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" />
+        <figcaption id="photoLightboxLabel"></figcaption>
+      </figure>
     </section>
 
     <div class="toast hidden" id="toast" role="status"></div>
