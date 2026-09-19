@@ -8,6 +8,9 @@ const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const PHOTO_DIR = path.join(DATA_DIR, "photos");
 const PORT = Number(process.env.PORT || 4173);
+const ADMIN_ACCOUNT = "Admin";
+const ADMIN_PIN = "123456";
+const adminSessions = new Set();
 
 mkdirSync(PHOTO_DIR, { recursive: true });
 const database = new DatabaseSync(path.join(DATA_DIR, "training.db"));
@@ -44,6 +47,7 @@ const statements = {
   member: database.prepare("SELECT id, name, workshop FROM members WHERE id = ? AND active = 1"),
   active: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'training' LIMIT 1"),
   sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' ORDER BY started_at DESC"),
+  allSessions: database.prepare("SELECT * FROM sessions ORDER BY started_at DESC"),
   start: database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)"),
   end: database.prepare("UPDATE sessions SET ended_at = ?, end_photo_path = ?, status = 'completed' WHERE id = ? AND member_id = ? AND status = 'training'"),
 };
@@ -109,6 +113,39 @@ function dashboard(memberId) {
   };
 }
 
+function isAdmin(request) {
+  const authorization = request.headers.authorization || "";
+  return authorization.startsWith("Bearer ") && adminSessions.has(authorization.slice(7));
+}
+
+function adminOverview() {
+  const now = new Date();
+  const members = statements.members.all();
+  const sessions = statements.allSessions.all();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const goalMinutes = 16 * 60;
+  const memberStats = members.map((member) => {
+    const memberSessions = sessions.filter((session) => session.member_id === member.id);
+    const monthMinutes = memberSessions.reduce((total, session) => total + minutesInRange(session, monthStart, nextMonth, now), 0);
+    const active = memberSessions.find((session) => session.status === "training");
+    return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
+  });
+  const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
+  const names = new Map(members.map((member) => [member.id, member.name]));
+  return {
+    now: now.toISOString(),
+    summary: {
+      monthMinutes,
+      goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
+      activeMembers: memberStats.filter((member) => member.active).length,
+      completedSessions: sessions.filter((session) => session.status === "completed").length,
+    },
+    members: memberStats,
+    recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 8).map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id) })),
+  };
+}
+
 function parsePhoto(dataUrl) {
   const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || "");
   if (!match) throw new Error("照片格式无效，请重新拍摄或选择 JPG、PNG、WebP 图片。");
@@ -151,6 +188,22 @@ function serveFile(response, filePath) {
 
 async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/members") return sendJson(response, 200, { members: statements.members.all() });
+  if (request.method === "POST" && pathname === "/api/admin/login") {
+    const body = await readJson(request);
+    if (body.account !== ADMIN_ACCOUNT || body.pin !== ADMIN_PIN) return sendError(response, 401, "管理员账号或 PIN 不正确。");
+    const token = randomUUID();
+    adminSessions.add(token);
+    return sendJson(response, 200, { token, account: ADMIN_ACCOUNT });
+  }
+  if (request.method === "POST" && pathname === "/api/admin/logout") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    adminSessions.delete(request.headers.authorization.slice(7));
+    return sendJson(response, 200, { ok: true });
+  }
+  if (request.method === "GET" && pathname === "/api/admin/overview") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    return sendJson(response, 200, adminOverview());
+  }
   const dashboardMatch = /^\/api\/members\/([^/]+)\/dashboard$/.exec(pathname);
   if (request.method === "GET" && dashboardMatch) {
     const data = dashboard(decodeURIComponent(dashboardMatch[1]));

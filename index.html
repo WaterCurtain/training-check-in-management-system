@@ -37,7 +37,35 @@
             <p class="form-error" id="identityError" role="alert"></p>
             <button class="primary-button" type="submit">进入我的实训</button>
           </form>
-        <p class="demo-note">本地服务会保存实训时间与照片；当前使用演示成员与演示 PIN。</p>
+          <button class="admin-entry" id="showAdminLogin" type="button">管理员入口</button>
+          <p class="demo-note">本地服务会保存实训时间与照片；当前使用演示成员与演示 PIN。</p>
+        </div>
+      </section>
+
+      <section class="identity-view hidden" id="adminLogin" aria-labelledby="adminLoginTitle">
+        <div class="identity-visual admin-visual" aria-hidden="true">
+          <div class="brand-mark"><span></span><span></span><span></span></div>
+          <p>电气仪控实训室</p>
+          <small>训练总览 · 管理员工作台</small>
+        </div>
+        <div class="identity-panel">
+          <div class="panel-copy">
+            <h1 id="adminLoginTitle">进入管理工作台</h1>
+            <p>查看全员训练进度、进行中实训和近期签到记录。</p>
+          </div>
+          <form id="adminLoginForm" class="identity-form">
+            <label>
+              <span>管理员账号</span>
+              <input id="adminAccount" value="Admin" autocomplete="username" required />
+            </label>
+            <label>
+              <span>6 位 PIN</span>
+              <input id="adminPin" inputmode="numeric" maxlength="6" autocomplete="current-password" placeholder="请输入 6 位 PIN" required />
+            </label>
+            <p class="form-error" id="adminError" role="alert"></p>
+            <button class="primary-button" type="submit">进入训练总览</button>
+          </form>
+          <button class="admin-entry" id="backToMember" type="button">返回成员签到</button>
         </div>
       </section>
 
@@ -109,6 +137,37 @@
             <div class="record-list" id="recordList"></div>
           </section>
         </div>
+      </section>
+
+      <section class="admin-dashboard hidden" id="adminDashboard" aria-live="polite">
+        <aside class="admin-sidebar">
+          <a class="admin-brand" href="#" aria-label="电气仪控实训室管理端首页">
+            <span class="brand-mark"><span></span><span></span><span></span></span>
+            <span>电气仪控实训室<small>实训签到管理系统</small></span>
+          </a>
+          <nav aria-label="管理端导航"><span class="admin-nav-current">训练总览</span></nav>
+          <p>本阶段已接入实时总览；人员、异常与导出将在后续功能中开放。</p>
+        </aside>
+        <main class="admin-main">
+          <header class="admin-header">
+            <div><h1>训练总览</h1><p>实时掌握实训室运行情况，保障教学秩序与实训安全。</p></div>
+            <div class="admin-actions"><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
+          </header>
+          <section class="admin-kpis" aria-label="训练总览统计">
+            <article><span>本月训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>全员累计有效时长</small></article>
+            <article><span>目标达成人数</span><strong id="adminGoalMembers">0 人</strong><small>月度目标为 16 小时</small></article>
+            <article><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
+            <article><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
+          </section>
+          <section class="admin-section" aria-labelledby="adminMembersTitle">
+            <div class="admin-section-heading"><div><h2 id="adminMembersTitle">成员训练进度</h2><p>本月数据按服务器时间自动汇总。</p></div></div>
+            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度</th><th>实训状态</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
+          </section>
+          <section class="admin-section" aria-labelledby="adminRecordsTitle">
+            <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最近完成的记录会关联开始与结束照片。</p></div></div>
+            <div class="admin-records" id="adminRecords"></div>
+          </section>
+        </main>
       </section>
     </main>
 

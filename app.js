@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null };
 const identityKey = "training-checkin-member";
 const $ = (id) => document.getElementById(id);
 
@@ -37,6 +37,10 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => toast.classList.add("hidden"), 2800);
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;" })[character]);
+}
+
 function populateMembers() {
   $("memberSelect").innerHTML = state.members.map((member) => `<option value="${member.id}">${member.name} · ${member.workshop}</option>`).join("");
   const savedMember = localStorage.getItem(identityKey);
@@ -50,6 +54,44 @@ async function loadDashboard() {
   state.statistics = data.statistics;
   state.serverNow = data.now;
   render();
+}
+
+async function loadAdminDashboard() {
+  const data = await request("/api/admin/overview", { headers: { Authorization: `Bearer ${state.adminToken}` } });
+  renderAdminDashboard(data);
+}
+
+function renderAdminDashboard(data) {
+  $("adminDate").textContent = formatDate(data.now);
+  $("adminMonthMinutes").textContent = formatMinutes(data.summary.monthMinutes);
+  $("adminGoalMembers").textContent = `${data.summary.goalReachedMembers} 人`;
+  $("adminActiveMembers").textContent = `${data.summary.activeMembers} 人`;
+  $("adminCompletedSessions").textContent = `${data.summary.completedSessions} 次`;
+  $("adminMemberRows").innerHTML = data.members.map((member) => {
+    const ratio = Math.min(member.monthMinutes / member.goalMinutes, 1);
+    const status = member.active ? "实训中" : member.monthMinutes >= member.goalMinutes ? "已达标" : "未达标";
+    const statusClass = member.active ? "admin-status-active" : member.monthMinutes >= member.goalMinutes ? "admin-status-complete" : "admin-status-pending";
+    return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${Math.round(member.monthMinutes / member.goalMinutes * 100)}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td></tr>`;
+  }).join("");
+  $("adminRecords").innerHTML = data.recentRecords.length ? data.recentRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)}</strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos"><img src="${record.startPhoto}" alt="${escapeHtml(record.memberName)}的开始现场照片" /><img src="${record.endPhoto}" alt="${escapeHtml(record.memberName)}的结束现场照片" /></div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
+}
+
+function showAdminLogin() {
+  $("identityView").classList.add("hidden");
+  $("adminLogin").classList.remove("hidden");
+  $("adminPin").value = "";
+  $("adminError").textContent = "";
+  $("adminPin").focus();
+}
+
+async function leaveAdminDashboard() {
+  const token = state.adminToken;
+  state.adminToken = null;
+  $("adminDashboard").classList.add("hidden");
+  $("identityView").classList.remove("hidden");
+  $("pinInput").value = "";
+  $("pinInput").focus();
+  if (token) await request("/api/admin/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
 }
 
 async function setupIdentity() {
@@ -74,6 +116,21 @@ async function setupIdentity() {
       $("dashboard").classList.remove("hidden");
     } catch (error) {
       $("identityError").textContent = `无法加载训练数据：${error.message}`;
+    }
+  });
+  $("showAdminLogin").addEventListener("click", showAdminLogin);
+  $("backToMember").addEventListener("click", () => { $("adminLogin").classList.add("hidden"); $("identityView").classList.remove("hidden"); });
+  $("adminLoginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const data = await request("/api/admin/login", { method: "POST", body: JSON.stringify({ account: $("adminAccount").value.trim(), pin: $("adminPin").value.trim() }) });
+      state.adminToken = data.token;
+      await loadAdminDashboard();
+      $("adminError").textContent = "";
+      $("adminLogin").classList.add("hidden");
+      $("adminDashboard").classList.remove("hidden");
+    } catch (error) {
+      $("adminError").textContent = error.message;
     }
   });
 }
@@ -240,5 +297,6 @@ $("sheetBackdrop").addEventListener("click", closeSheet);
 $("photoInput").addEventListener("change", handlePhoto);
 $("confirmCheckin").addEventListener("click", confirmCheckin);
 $("showAllRecords").addEventListener("click", () => { state.showAllRecords = !state.showAllRecords; renderRecords(); });
+$("adminLogout").addEventListener("click", leaveAdminDashboard);
 setupIdentity();
 window.setInterval(renderTimer, 1000);

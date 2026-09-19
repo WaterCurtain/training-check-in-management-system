@@ -41,3 +41,28 @@ test("实训记录使用 SQLite 保存并关联本地照片", async (context) =>
   assert.equal(storedPhoto.status, 200);
   assert.equal(storedPhoto.headers.get("content-type"), "image/png");
 });
+
+test("管理员需要认证后才能读取训练总览", async (context) => {
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  context.after(() => server.close());
+
+  const anonymous = await fetch(`${baseUrl}/api/admin/overview`);
+  assert.equal(anonymous.status, 401);
+
+  const login = await fetch(`${baseUrl}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account: "Admin", pin: "123456" }) });
+  assert.equal(login.status, 200);
+  const { token } = await login.json();
+
+  const overview = await fetch(`${baseUrl}/api/admin/overview`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(overview.status, 200);
+  const data = await overview.json();
+  assert.equal(data.members.length, 3);
+  assert.equal(typeof data.summary.monthMinutes, "number");
+
+  const logout = await fetch(`${baseUrl}/api/admin/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(logout.status, 200);
+  const expired = await fetch(`${baseUrl}/api/admin/overview`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(expired.status, 401);
+});
