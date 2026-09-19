@@ -29,6 +29,80 @@ function formatDate(date) {
   return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date(date));
 }
 
+function startOfDay(date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function minutesInRange(record, rangeStart, rangeEnd, now) {
+  const start = new Date(record.start).getTime();
+  const end = new Date(record.end || now).getTime();
+  return Math.max(0, Math.round((Math.min(end, rangeEnd.getTime()) - Math.max(start, rangeStart.getTime())) / 60000));
+}
+
+function formatChartHours(minutes) {
+  const hours = Math.round(minutes / 6) / 10;
+  return `${Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1)}小时`;
+}
+
+function chartRange(records, start, days, now) {
+  const values = Array(days).fill(0);
+  for (let day = 0; day < days; day += 1) {
+    const rangeStart = new Date(start);
+    rangeStart.setDate(start.getDate() + day);
+    const rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeStart.getDate() + 1);
+    values[day] = records.reduce((total, record) => total + minutesInRange(record, rangeStart, rangeEnd, now), 0);
+  }
+  return values;
+}
+
+function chartRecords() {
+  return state.active ? [...state.records, state.active] : state.records;
+}
+
+function renderBarChart(values, labels) {
+  const max = Math.max(...values, 60);
+  const width = 680;
+  const height = 236;
+  const plot = { left: 42, right: 14, top: 18, bottom: 33 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const step = plotWidth / values.length;
+  const barWidth = Math.max(4, Math.min(16, step * .58));
+  const grid = [0, .5, 1].map((ratio) => {
+    const y = plot.top + plotHeight * (1 - ratio);
+    return `<line x1="${plot.left}" x2="${width - plot.right}" y1="${y}" y2="${y}" /><text x="0" y="${y + 4}">${formatChartHours(max * ratio).replace("小时", "")}</text>`;
+  }).join("");
+  const bars = values.map((value, index) => {
+    const barHeight = value ? Math.max(3, plotHeight * value / max) : 2;
+    const x = plot.left + step * index + (step - barWidth) / 2;
+    const y = plot.top + plotHeight - barHeight;
+    const showLabel = index === 0 || index === values.length - 1 || index % 7 === 0;
+    return `<g><title>${labels[index]}：${formatMinutes(value)}</title><rect class="${value ? "chart-bar" : "chart-bar-zero"}" x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="${Math.min(3, barWidth / 2)}" />${showLabel ? `<text class="chart-x-label" x="${x + barWidth / 2}" y="${height - 8}">${labels[index]}</text>` : ""}</g>`;
+  }).join("");
+  return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本月每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg>`;
+}
+
+function renderLineChart(values, labels) {
+  const max = Math.max(...values, 60);
+  const width = 520;
+  const height = 220;
+  const plot = { left: 38, right: 14, top: 18, bottom: 34 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const pointAt = (value, index) => ({ x: plot.left + plotWidth * index / (values.length - 1), y: plot.top + plotHeight * (1 - value / max) });
+  const points = values.map(pointAt);
+  const polyline = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const grid = [0, .5, 1].map((ratio) => {
+    const y = plot.top + plotHeight * (1 - ratio);
+    return `<line x1="${plot.left}" x2="${width - plot.right}" y1="${y}" y2="${y}" /><text x="0" y="${y + 4}">${formatChartHours(max * ratio).replace("小时", "")}</text>`;
+  }).join("");
+  const dots = points.map(({ x, y }, index) => `<g><title>${labels[index]}：${formatMinutes(values[index])}</title><circle class="chart-dot" cx="${x}" cy="${y}" r="4" /><text class="chart-x-label" x="${x}" y="${height - 8}">${labels[index]}</text></g>`).join("");
+  return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本周训练趋势折线图。本周累计 ${formatMinutes(values.reduce((total, value) => total + value, 0))}"><g class="chart-grid">${grid}</g><polyline class="chart-line" points="${polyline}" />${dots}</svg>`;
+}
+
 function currentMember() {
   return state.members.find((member) => member.id === state.memberId);
 }
@@ -263,6 +337,7 @@ function render() {
   $("todayLabel").textContent = formatDate(state.serverNow);
   renderTrainingHero();
   renderStats();
+  renderAnalytics();
   renderRecords();
 }
 
@@ -309,6 +384,33 @@ function renderStats() {
   status.textContent = complete ? "已达标" : "未达标";
   status.className = complete ? "success-text" : "warning-text";
   $("progressBar").style.setProperty("--progress", ratio);
+}
+
+function renderAnalytics() {
+  const now = new Date(state.serverNow);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const records = chartRecords();
+  const monthValues = chartRange(records, monthStart, daysInMonth, now);
+  const monthTotal = monthValues.reduce((total, value) => total + value, 0);
+  const monthActiveDays = monthValues.filter(Boolean).length;
+  const monthLabels = monthValues.map((_, index) => `${index + 1}日`);
+  $("dailyChartSummary").textContent = monthTotal ? `本月共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : "本月暂无实训数据";
+  $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthLabels) : '<p class="chart-empty">本月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>';
+
+  const monday = startOfDay(now);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const weekValues = chartRange(records, monday, 7, now);
+  const weekTotal = weekValues.reduce((total, value) => total + value, 0);
+  const weekLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  $("weeklyChartSummary").textContent = weekTotal ? `本周累计 ${formatMinutes(weekTotal)}` : "本周暂无实训数据";
+  $("weeklyTrainingChart").innerHTML = weekTotal ? renderLineChart(weekValues, weekLabels) : '<p class="chart-empty">本周还没有可统计的实训记录。</p>';
+
+  const stats = state.statistics;
+  const ratio = Math.min(stats.monthMinutes / stats.goalMinutes, 1);
+  $("trainingInsightValue").textContent = `${Math.round(ratio * 100)}%`;
+  $("trainingInsightMeta").textContent = stats.monthMinutes >= stats.goalMinutes ? "已完成本月 16 小时目标" : `距离目标还需 ${formatMinutes(stats.goalMinutes - stats.monthMinutes)}`;
+  $("trainingInsightText").textContent = `累计 ${formatMinutes(stats.monthMinutes)}，${stats.monthCount} 次实训。`;
 }
 
 function renderRecords() {

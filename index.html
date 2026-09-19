@@ -122,6 +122,37 @@
             <article><span class="stat-icon calendar-icon" aria-hidden="true"></span><span>本月次数</span><strong id="monthCount">8 次</strong></article>
           </section>
 
+          <section class="analytics-section" aria-labelledby="analyticsTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="analyticsTitle">个人训练趋势</h2>
+                <p>按服务器时间汇总已完成和进行中的实训时长。</p>
+              </div>
+            </div>
+            <div class="daily-chart" aria-labelledby="dailyChartTitle">
+              <div class="chart-heading">
+                <div><h3 id="dailyChartTitle">本月每日实训时长</h3><p id="dailyChartSummary">尚无本月实训数据</p></div>
+                <span>单位：小时</span>
+              </div>
+              <div id="dailyTrainingChart" class="chart-canvas"></div>
+            </div>
+            <div class="analytics-split">
+              <div class="trend-chart" aria-labelledby="weeklyChartTitle">
+                <div class="chart-heading">
+                  <div><h3 id="weeklyChartTitle">本周训练趋势</h3><p id="weeklyChartSummary">尚无本周实训数据</p></div>
+                  <span>单位：小时</span>
+                </div>
+                <div id="weeklyTrainingChart" class="chart-canvas"></div>
+              </div>
+              <div class="chart-insight" aria-labelledby="trainingInsightTitle">
+                <h3 id="trainingInsightTitle">月度累计进度</h3>
+                <p id="trainingInsightText">完成实训后，系统将自动更新累计时长。</p>
+                <strong id="trainingInsightValue">0%</strong>
+                <span id="trainingInsightMeta">距离目标还需 16小时</span>
+              </div>
+            </div>
+          </section>
+
           <section class="history-section" aria-labelledby="historyTitle">
             <div class="section-heading compact">
               <div>
