@@ -132,7 +132,7 @@
                 <h2 id="calendarTitle">训练日历</h2>
                 <p id="calendarSummary">选择有记录的日期，查看当天的实训文字记录与现场凭证。</p>
               </div>
-              <span class="calendar-key"><i aria-hidden="true"></i>有实训记录</span>
+              <div class="calendar-tools"><label><span class="visually-hidden">年份</span><select id="calendarYear" aria-label="选择年份"></select></label><label><span class="visually-hidden">月份</span><select id="calendarMonth" aria-label="选择月份"></select></label><button class="primary-button calendar-apply-button" id="applyCalendarMonth" type="button">确定</button><span class="calendar-key"><i aria-hidden="true"></i>有实训记录</span></div>
             </div>
             <div class="training-calendar" id="trainingCalendar" aria-label="本月实训日历"></div>
             <section class="calendar-detail" id="calendarDetail" aria-live="polite"></section>
@@ -141,12 +141,12 @@
           <section class="history-section" aria-labelledby="historyTitle">
             <div class="section-heading compact">
               <div>
-                <h2 id="historyTitle">最近实训记录</h2>
-                <p>每条记录均关联开始与结束现场照片。</p>
+                <h2 id="historyTitle">实训记录列表</h2>
+                <p>每条记录均关联开始与结束现场照片；每页最多 10 条。</p>
               </div>
-              <button class="text-button" id="showAllRecords" type="button">查看全部</button>
             </div>
             <div class="record-list" id="recordList"></div>
+            <div class="member-record-pagination" id="memberRecordPagination"></div>
           </section>
         </div>
       </section>
@@ -170,10 +170,10 @@
             <div class="admin-actions"><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
           </header>
           <section class="admin-kpis" aria-label="训练总览统计">
-            <article><span>人均每日训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>按在用成员与本月已过天数计算</small></article>
-            <article><span>目标达成人数</span><strong id="adminGoalMembers">0 人</strong><small>月度目标为 16 小时</small></article>
-            <article><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
-            <article><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
+            <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><span>人均每日训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>按在用成员与本月已过天数计算</small></article>
+            <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M4 12h16"/><circle cx="12" cy="12" r="7"/></svg></span><span>目标达成人数</span><strong id="adminGoalMembers">0 人</strong><small>月度目标为 16 小时</small></article>
+            <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3v4m10-4v4M5 9h14v10H5z"/><path d="M8 14h3m2 0h3"/></svg></span><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
+            <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/><circle cx="12" cy="12" r="9"/></svg></span><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
           </section>
           <section class="admin-visuals" aria-labelledby="adminVisualsTitle">
             <div class="admin-section-heading"><div><h2 id="adminVisualsTitle">本月训练数据</h2><p>用时长、完成次数与参与人数识别本月的训练高峰和空档。</p></div></div>
@@ -206,6 +206,8 @@
             <div class="admin-section-heading"><div><h2 id="adminRecordFilterTitle">记录筛选</h2><p id="adminRecordFilterSummary">加载中</p></div></div>
             <div class="record-filters">
               <label><span>成员</span><select id="adminRecordMemberFilter"><option value="">全部成员</option></select></label>
+              <label><span>年份</span><select id="adminRecordYearFilter"></select></label>
+              <label><span>月份</span><select id="adminRecordMonthFilter"></select></label>
               <label><span>日期</span><input id="adminRecordDateFilter" type="date" /></label>
               <button class="primary-button admin-filter-button" id="applyAdminRecordFilters" type="button">确定筛选</button>
               <button class="text-button" id="clearAdminRecordFilters" type="button">清除筛选</button>

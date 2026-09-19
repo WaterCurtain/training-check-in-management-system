@@ -1,5 +1,6 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordDraftMemberId: "", adminRecordDraftDate: "", adminRecordPage: 1, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordDraftMemberId: "", adminRecordDraftDate: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminRecordPage: 1, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null };
 const ADMIN_RECORDS_PER_PAGE = 10;
+const MEMBER_RECORDS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -20,6 +21,10 @@ function formatMinutes(minutes) {
   const mins = value % 60;
   if (!hours) return `${mins}分钟`;
   return mins ? `${hours}小时${mins}分钟` : `${hours}小时`;
+}
+
+function formatRemainingMinutes(minutes) {
+  return minutes <= 0 ? "0小时" : formatMinutes(minutes);
 }
 
 function formatClock(date) {
@@ -105,7 +110,7 @@ function renderBarChart(values, labels, shortLabels = labels) {
     const y = plot.top + plotHeight - barHeight;
     return `<g class="chart-interactive" tabindex="0" data-chart-label="${escapeHtml(labels[index])}" data-chart-value="${formatMinutes(value)}"><title>${labels[index]}：${formatMinutes(value)}</title><rect class="chart-hit-area" x="${plot.left + step * index + step * .08}" y="${plot.top}" width="${step * .84}" height="${plotHeight}" /><rect class="${value ? "chart-bar" : "chart-bar-zero"}" x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="${Math.min(3, barWidth / 2)}" />${visibleLabels.has(index) ? `<text class="chart-x-label" x="${x + barWidth / 2}" y="${height - 8}">${shortLabels[index]}</text>` : ""}</g>`;
   }).join("");
-  return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本月每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg>`;
+  return `<div class="chart-scroll" tabindex="0" aria-label="可左右滚动查看所选月份全部日期"><svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="所选月份每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg></div>`;
 }
 
 function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图", shortLabels = labels) {
@@ -217,10 +222,15 @@ async function showAdminOverview() {
 
 async function showAdminRecords(memberId = "") {
   try {
+    const now = new Date();
     state.adminRecordMemberId = memberId;
     state.adminRecordDate = "";
     state.adminRecordDraftMemberId = memberId;
     state.adminRecordDraftDate = "";
+    state.adminRecordYear = now.getFullYear();
+    state.adminRecordMonth = now.getMonth();
+    state.adminRecordDraftYear = state.adminRecordYear;
+    state.adminRecordDraftMonth = state.adminRecordMonth;
     state.adminRecordPage = 1;
     state.adminCalendarDate = "";
     await loadAdminRecords();
@@ -335,13 +345,13 @@ function renderAdminVisualization(visualization, now) {
   $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), dailyDates.map(chartDateLabel), "本月全员每日实训时长趋势图", daily.map((item) => `${item.day}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
   const ranking = safeVisualization.ranking || [];
   const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
-  $("adminRankingChart").innerHTML = ranking.length ? `<div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div>` : '<p class="admin-empty">暂无排名数据。</p>';
+  $("adminRankingChart").innerHTML = ranking.length ? `<div class="admin-chart-list-scroll"><div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无排名数据。</p>';
   const totalMembers = safeVisualization.reachedMembers + safeVisualization.remainingMembers;
   const reachedRatio = totalMembers ? safeVisualization.reachedMembers / totalMembers : 0;
   $("adminAttainmentChart").innerHTML = `<div class="attainment-ring-layout"><div class="attainment-ring" aria-label="达标率 ${Math.round(reachedRatio * 100)}%"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="attainment-ring-track" cx="60" cy="60" r="48" pathLength="100"/><circle class="attainment-ring-value" cx="60" cy="60" r="48" pathLength="100" stroke-dasharray="${reachedRatio * 100} 100"/></svg><strong>${Math.round(reachedRatio * 100)}<small>%</small></strong></div><div class="attainment-summary"><strong>${safeVisualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><small><i class="attainment-key reached"></i>达标 ${safeVisualization.reachedMembers} 人　<i class="attainment-key remaining"></i>未达标 ${safeVisualization.remainingMembers} 人</small></div></div>`;
   const frequency = safeVisualization.frequency || [];
   const maxFrequency = Math.max(...frequency.map((item) => item.count), 1);
-  $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
+  $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="admin-chart-list-scroll"><div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无频率数据。</p>';
 }
 
 function adminPhotoButton(url, label) {
@@ -349,7 +359,7 @@ function adminPhotoButton(url, label) {
 }
 
 function renderAdminRecordCalendar(records) {
-  const baseDate = new Date(records[0]?.start || Date.now());
+  const baseDate = new Date(state.adminRecordYear ?? new Date(records[0]?.start || Date.now()).getFullYear(), state.adminRecordMonth ?? new Date(records[0]?.start || Date.now()).getMonth(), 1);
   const year = baseDate.getFullYear();
   const month = baseDate.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -388,13 +398,22 @@ function renderAdminRecords() {
   memberFilter.innerHTML = `<option value="">全部成员</option>${state.adminRecordMembers.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
   memberFilter.value = state.adminRecordDraftMemberId;
   $("adminRecordDateFilter").value = state.adminRecordDraftDate;
-  const records = state.adminRecords.filter((record) => !state.adminRecordDate || inputDate(record.start) === state.adminRecordDate);
+  const now = new Date();
+  const years = [...new Set([now.getFullYear(), ...state.adminRecords.map((record) => new Date(record.start).getFullYear())])].sort((left, right) => right - left);
+  $("adminRecordYearFilter").innerHTML = years.map((year) => `<option value="${year}">${year}年</option>`).join("");
+  $("adminRecordMonthFilter").innerHTML = Array.from({ length: 12 }, (_, month) => `<option value="${month}">${month + 1}月</option>`).join("");
+  $("adminRecordYearFilter").value = state.adminRecordDraftYear ?? now.getFullYear();
+  $("adminRecordMonthFilter").value = state.adminRecordDraftMonth ?? now.getMonth();
+  const records = state.adminRecords.filter((record) => {
+    const date = new Date(record.start);
+    return (!state.adminRecordDate || inputDate(record.start) === state.adminRecordDate) && date.getFullYear() === state.adminRecordYear && date.getMonth() === state.adminRecordMonth;
+  });
   const pages = Math.max(1, Math.ceil(records.length / ADMIN_RECORDS_PER_PAGE));
   state.adminRecordPage = Math.min(state.adminRecordPage, pages);
   const start = (state.adminRecordPage - 1) * ADMIN_RECORDS_PER_PAGE;
   const pageRecords = records.slice(start, start + ADMIN_RECORDS_PER_PAGE);
   $("adminRecordFilterSummary").textContent = `共 ${records.length} 条已完成实训记录 · 每页 10 条`;
-  renderAdminRecordCalendar(state.adminRecords);
+  renderAdminRecordCalendar(records);
   const groups = new Map();
   pageRecords.forEach((record) => {
     const date = inputDate(record.start);
@@ -472,9 +491,14 @@ async function setupIdentity() {
         $("adminDashboard").classList.remove("hidden");
       } else {
         state.memberId = data.member.id;
-        applyDashboard(data);
-        state.showAllRecords = false;
         state.selectedCalendarDate = "";
+        const serverDate = new Date(data.now);
+        state.selectedCalendarYear = serverDate.getFullYear();
+        state.selectedCalendarMonth = serverDate.getMonth();
+        state.calendarDraftYear = state.selectedCalendarYear;
+        state.calendarDraftMonth = state.selectedCalendarMonth;
+        state.historyPage = 1;
+        applyDashboard(data);
         $("identityView").classList.add("hidden");
         $("dashboard").classList.remove("hidden");
       }
@@ -548,7 +572,7 @@ function renderStats() {
   $("monthCount").textContent = `${stats.monthCount} 次`;
   $("progressText").innerHTML = `${formatMinutes(stats.monthMinutes)} <span>/ ${formatMinutes(stats.goalMinutes)}</span>`;
   $("completedTime").textContent = formatMinutes(stats.monthMinutes);
-  $("remainingTime").textContent = complete ? "已完成" : formatMinutes(stats.goalMinutes - stats.monthMinutes);
+  $("remainingTime").textContent = formatRemainingMinutes(stats.goalMinutes - stats.monthMinutes);
   const status = $("goalStatus");
   status.textContent = complete ? "已达标" : "未达标";
   status.className = complete ? "success-text" : "warning-text";
@@ -557,13 +581,17 @@ function renderStats() {
 
 function renderAnalytics() {
   const now = new Date(state.serverNow);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const year = state.selectedCalendarYear ?? now.getFullYear();
+  const month = state.selectedCalendarMonth ?? now.getMonth();
+  const monthStart = new Date(year, month, 1);
   const records = chartRecords();
-  const monthValues = chartRange(records, monthStart, now.getDate(), now);
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  const monthValues = chartRange(records, monthStart, isCurrentMonth ? now.getDate() : new Date(year, month + 1, 0).getDate(), now);
   const monthTotal = monthValues.reduce((total, value) => total + value, 0);
   const monthActiveDays = monthValues.filter(Boolean).length;
-  const monthDates = monthValues.map((_, index) => new Date(now.getFullYear(), now.getMonth(), index + 1));
-  $("dailyChartSummary").textContent = monthTotal ? `本月共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : "本月暂无实训数据";
+  const monthDates = monthValues.map((_, index) => new Date(year, month, index + 1));
+  $("dailyChartTitle").textContent = `${year}年${month + 1}月每日实训时长`;
+  $("dailyChartSummary").textContent = monthTotal ? `所选月份共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : "所选月份暂无实训数据";
   $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthDates.map(chartDateLabel), monthDates.map((date) => `${date.getDate()}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>';
 
   const monday = startOfDay(now);
@@ -583,8 +611,8 @@ function renderAnalytics() {
 
 function renderCalendar() {
   const now = new Date(state.serverNow);
-  const year = now.getFullYear();
-  const month = now.getMonth();
+  const year = state.selectedCalendarYear ?? now.getFullYear();
+  const month = state.selectedCalendarMonth ?? now.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
   const recordsByDate = new Map();
@@ -598,7 +626,12 @@ function renderCalendar() {
   });
   const availableDates = [...recordsByDate.keys()].sort();
   if (!state.selectedCalendarDate || !recordsByDate.has(state.selectedCalendarDate)) state.selectedCalendarDate = availableDates.at(-1) || "";
-  $("calendarSummary").textContent = availableDates.length ? `本月有 ${availableDates.length} 个训练日；已选 ${state.selectedCalendarDate ? formatDate(`${state.selectedCalendarDate}T00:00:00`) : "最近记录"}。` : "本月暂无已完成的实训记录。完成签到后会自动显示在日历中。";
+  const years = [...new Set([now.getFullYear(), ...state.records.map((record) => new Date(record.start).getFullYear())])].sort((left, right) => right - left);
+  $("calendarYear").innerHTML = years.map((item) => `<option value="${item}">${item}年</option>`).join("");
+  $("calendarMonth").innerHTML = Array.from({ length: 12 }, (_, index) => `<option value="${index}">${index + 1}月</option>`).join("");
+  $("calendarYear").value = state.calendarDraftYear ?? year;
+  $("calendarMonth").value = state.calendarDraftMonth ?? month;
+  $("calendarSummary").textContent = availableDates.length ? `${year}年${month + 1}月有 ${availableDates.length} 个训练日；已选 ${state.selectedCalendarDate ? formatDate(`${state.selectedCalendarDate}T00:00:00`) : "最近记录"}。` : `${year}年${month + 1}月暂无已完成的实训记录。`;
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span class="calendar-weekday">${day}</span>`).join("");
   const blanks = Array.from({ length: leadingDays }, () => '<span class="calendar-blank" aria-hidden="true"></span>').join("");
   const days = Array.from({ length: daysInMonth }, (_, index) => {
@@ -616,14 +649,17 @@ function renderCalendar() {
 }
 
 function renderRecords() {
-  const records = state.showAllRecords ? state.records : state.records.slice(0, 4);
-  $("showAllRecords").textContent = state.showAllRecords ? "收起记录" : `查看全部 (${state.records.length})`;
+  const pages = Math.max(1, Math.ceil(state.records.length / MEMBER_RECORDS_PER_PAGE));
+  state.historyPage = Math.min(state.historyPage, pages);
+  const startIndex = (state.historyPage - 1) * MEMBER_RECORDS_PER_PAGE;
+  const records = state.records.slice(startIndex, startIndex + MEMBER_RECORDS_PER_PAGE);
   $("recordList").innerHTML = records.length ? records.map((record) => {
     const start = new Date(record.start);
     const end = new Date(record.end);
     const day = `${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
     return `<article class="record-item"><span class="record-date">${day}</span><div class="record-main"><strong>本次实训记录</strong><p>${formatClock(start)} 开始 · ${formatClock(end)} 结束</p></div><div class="record-times"><span>${formatMinutes((end - start) / 60000)}</span><span class="record-status">正常</span></div><div class="record-media">${adminPhotoButton(record.startPhoto, "开始现场照片")}${adminPhotoButton(record.endPhoto, "结束现场照片")}</div></article>`;
   }).join("") : '<p class="empty-records">暂无已完成的实训记录。完成一次签到后，照片和时长会在这里保留。</p>';
+  $("memberRecordPagination").innerHTML = state.records.length > MEMBER_RECORDS_PER_PAGE ? `<span>第 ${state.historyPage} / ${pages} 页</span><div><button class="text-button" type="button" data-member-record-page="${state.historyPage - 1}" ${state.historyPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" type="button" data-member-record-page="${state.historyPage + 1}" ${state.historyPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function openSheet(action) {
@@ -719,7 +755,16 @@ $("closeSheet").addEventListener("click", closeSheet);
 $("sheetBackdrop").addEventListener("click", closeSheet);
 $("photoInput").addEventListener("change", handlePhoto);
 $("confirmCheckin").addEventListener("click", confirmCheckin);
-$("showAllRecords").addEventListener("click", () => { state.showAllRecords = !state.showAllRecords; renderRecords(); });
+$("calendarYear").addEventListener("change", (event) => { state.calendarDraftYear = Number(event.target.value); });
+$("calendarMonth").addEventListener("change", (event) => { state.calendarDraftMonth = Number(event.target.value); });
+$("applyCalendarMonth").addEventListener("click", () => {
+  state.selectedCalendarYear = state.calendarDraftYear;
+  state.selectedCalendarMonth = state.calendarDraftMonth;
+  state.selectedCalendarDate = "";
+  renderAnalytics();
+  renderCalendar();
+});
+$("memberRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-member-record-page]"); if (!button || button.disabled) return; state.historyPage = Number(button.dataset.memberRecordPage); renderRecords(); });
 $("trainingCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-calendar-date]"); if (!day || day.disabled) return; state.selectedCalendarDate = day.dataset.calendarDate; renderCalendar(); });
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
 $("memberLogout").addEventListener("click", leaveAdminDashboard);
@@ -732,16 +777,20 @@ $("adminMemberRows").addEventListener("click", (event) => {
   if (memberId && event.target.classList.contains("admin-member-records")) showAdminRecords(memberId);
 });
 $("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordDraftMemberId = event.target.value; });
+$("adminRecordYearFilter").addEventListener("change", (event) => { state.adminRecordDraftYear = Number(event.target.value); });
+$("adminRecordMonthFilter").addEventListener("change", (event) => { state.adminRecordDraftMonth = Number(event.target.value); });
 $("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDraftDate = event.target.value; });
 $("applyAdminRecordFilters").addEventListener("click", () => {
   const memberChanged = state.adminRecordMemberId !== state.adminRecordDraftMemberId;
   state.adminRecordMemberId = state.adminRecordDraftMemberId;
   state.adminRecordDate = state.adminRecordDraftDate;
+  state.adminRecordYear = state.adminRecordDraftYear;
+  state.adminRecordMonth = state.adminRecordDraftMonth;
   state.adminRecordPage = 1;
   state.adminCalendarDate = state.adminRecordDate;
   if (memberChanged) loadAdminRecords(); else renderAdminRecords();
 });
-$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordDraftMemberId = ""; state.adminRecordDraftDate = ""; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
+$("clearAdminRecordFilters").addEventListener("click", () => { const now = new Date(); state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordDraftMemberId = ""; state.adminRecordDraftDate = ""; state.adminRecordYear = now.getFullYear(); state.adminRecordMonth = now.getMonth(); state.adminRecordDraftYear = state.adminRecordYear; state.adminRecordDraftMonth = state.adminRecordMonth; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
 $("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; state.adminRecordDate = state.adminCalendarDate; state.adminRecordDraftDate = state.adminCalendarDate; state.adminRecordPage = 1; renderAdminRecords(); });
 $("adminRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-record-page]"); if (!button || button.disabled) return; state.adminRecordPage = Number(button.dataset.adminRecordPage); renderAdminRecords(); });
 $("adminOverviewRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-overview-page]"); if (!button || button.disabled || !state.adminDashboardData) return; state.adminOverviewRecordPage = Number(button.dataset.adminOverviewPage); renderAdminDashboard(state.adminDashboardData); });
@@ -763,6 +812,18 @@ document.addEventListener("pointerover", (event) => { const item = event.target.
 document.addEventListener("focusin", (event) => { const item = event.target.closest(".chart-interactive"); if (item) showChartTooltip(item); });
 document.addEventListener("pointerout", (event) => { if (event.target.closest(".chart-interactive") && !event.relatedTarget?.closest(".chart-interactive")) hideChartTooltip(); });
 document.addEventListener("focusout", (event) => { if (event.target.closest(".chart-interactive")) hideChartTooltip(); });
+let chartScrollDrag = null;
+document.addEventListener("pointerdown", (event) => {
+  const scroller = event.target.closest(".chart-scroll");
+  if (!scroller || event.button !== 0) return;
+  chartScrollDrag = { scroller, startX: event.clientX, scrollLeft: scroller.scrollLeft };
+  scroller.setPointerCapture?.(event.pointerId);
+});
+document.addEventListener("pointermove", (event) => {
+  if (!chartScrollDrag) return;
+  chartScrollDrag.scroller.scrollLeft = chartScrollDrag.scrollLeft - (event.clientX - chartScrollDrag.startX);
+});
+document.addEventListener("pointerup", () => { chartScrollDrag = null; });
 $("adminDashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("dashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("closePhotoLightbox").addEventListener("click", closePhotoLightbox);
