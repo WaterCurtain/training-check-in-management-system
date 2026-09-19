@@ -9,6 +9,11 @@ async function request(path, options = {}) {
   return data;
 }
 
+function serviceErrorMessage(error) {
+  if (/Failed to fetch/i.test(error.message)) return "无法连接本地服务。请在项目目录运行 npm start，并通过 http://127.0.0.1:4173 打开系统。";
+  return error.message;
+}
+
 function formatMinutes(minutes) {
   const value = Math.max(0, Math.round(minutes));
   const hours = Math.floor(value / 60);
@@ -100,7 +105,7 @@ async function setupIdentity() {
     state.members = data.members;
     populateMembers();
   } catch (error) {
-    $("identityError").textContent = `无法连接本地服务：${error.message}`;
+    $("identityError").textContent = serviceErrorMessage(error);
   }
   $("identityForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -115,7 +120,7 @@ async function setupIdentity() {
       $("identityView").classList.add("hidden");
       $("dashboard").classList.remove("hidden");
     } catch (error) {
-      $("identityError").textContent = `无法加载训练数据：${error.message}`;
+      $("identityError").textContent = `无法加载训练数据：${serviceErrorMessage(error)}`;
     }
   });
   $("showAdminLogin").addEventListener("click", showAdminLogin);
@@ -130,7 +135,7 @@ async function setupIdentity() {
       $("adminLogin").classList.add("hidden");
       $("adminDashboard").classList.remove("hidden");
     } catch (error) {
-      $("adminError").textContent = error.message;
+      $("adminError").textContent = serviceErrorMessage(error);
     }
   });
 }
