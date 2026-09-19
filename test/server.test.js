@@ -97,6 +97,11 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   const resetPinLogin = await fetch(`${baseUrl}/api/members/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "已编辑成员", pin: "111111" }) });
   assert.equal(resetPinLogin.status, 200);
 
+  const reset = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}/reset-pin`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(reset.status, 200);
+  const defaultPinLogin = await fetch(`${baseUrl}/api/members/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "已编辑成员", pin: "123456" }) });
+  assert.equal(defaultPinLogin.status, 200);
+
   database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(`test-session-${Date.now()}`, createdMemberId, new Date().toISOString(), "data/photos/test.png", new Date().toISOString());
   const activeMember = await fetch(`${baseUrl}/api/admin/members/${createdMemberId}/disable`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   assert.equal(activeMember.status, 409);

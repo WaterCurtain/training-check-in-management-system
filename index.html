@@ -163,7 +163,7 @@
         <main class="admin-main" id="adminOverview">
           <header class="admin-header">
             <div><h1>训练总览</h1></div>
-            <div class="admin-actions"><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
+            <div class="admin-actions"><div class="admin-overview-filters" id="adminOverviewFilters"><select id="adminOverviewYearFilter" aria-label="选择统计年份"></select><select id="adminOverviewMonthFilter" aria-label="选择统计月份"></select><button class="primary-button admin-filter-button" id="applyAdminOverviewMonth" type="button">确定</button></div><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
           </header>
           <section class="admin-kpis" aria-label="训练总览统计">
             <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><span>人均每日训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>按在用成员与本月已过天数计算</small></article>
@@ -184,7 +184,7 @@
             </div>
           </section>
           <section class="admin-section" aria-labelledby="adminMembersTitle">
-            <div class="admin-section-heading"><div><h2 id="adminMembersTitle">成员训练进度</h2><p id="adminMemberMonthSummary">本月数据</p></div><div class="admin-overview-filters"><select id="adminOverviewYearFilter" aria-label="选择统计年份"></select><select id="adminOverviewMonthFilter" aria-label="选择统计月份"></select><button class="primary-button admin-filter-button" id="applyAdminOverviewMonth" type="button">确定</button></div></div>
+            <div class="admin-section-heading"><div><h2 id="adminMembersTitle">成员训练进度</h2><p id="adminMemberMonthSummary">本月数据</p></div></div>
             <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th id="adminMemberMonthColumn">本月训练时长</th><th>目标进度<br /><small>要求 16 小时</small></th><th>实训状态</th><th>记录</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
           </section>
           <section class="admin-section" aria-labelledby="adminRecordsTitle">

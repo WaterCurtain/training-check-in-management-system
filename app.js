@@ -207,7 +207,7 @@ async function loadAdminRecords(memberId = state.adminRecordMemberId) {
 
 function renderManagedMembers() {
   $("memberCount").textContent = `共 ${state.managedMembers.length} 名成员`;
-  $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : `<button class="text-button delete-member" data-member-id="${member.id}" type="button">删除</button>`}</td></tr>`).join("");
+  $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button><button class="text-button reset-member-pin" data-member-id="${member.id}" type="button">重置 PIN</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : `<button class="text-button delete-member" data-member-id="${member.id}" type="button">删除</button>`}</td></tr>`).join("");
 }
 
 async function showAdminOverview() {
@@ -266,10 +266,10 @@ function openMemberSheet(member = null) {
   $("memberSheetDescription").textContent = member ? "修改后会立即同步到成员信息与管理端总览。" : "填写成员的基础实训信息。";
   $("managedMemberName").value = member?.name || "";
   $("managedMemberWorkshop").value = member?.workshop || "炼钢维修车间";
-  $("managedMemberPin").value = "";
+  $("managedMemberPin").value = member ? "" : "123456";
   $("managedMemberPin").required = !member;
-  $("managedMemberPinLabel").textContent = member ? "重置 PIN（可选）" : "6 位 PIN";
-  $("managedMemberPinHint").textContent = member ? "留空则保留原 PIN；填写时必须为 6 位数字。" : "新成员必须设置 6 位数字 PIN。";
+  $("managedMemberPinLabel").textContent = member ? "修改 PIN（可选）" : "6 位 PIN";
+  $("managedMemberPinHint").textContent = member ? "留空则保留原 PIN；填写时必须为 6 位数字。" : "默认 PIN 为 123456，可按需修改。";
   $("memberFormError").textContent = "";
   $("saveMember").textContent = member ? "保存修改" : "保存成员";
   $("memberSheet").classList.remove("hidden");
@@ -322,6 +322,17 @@ async function disableMember(memberId) {
   }
 }
 
+async function resetMemberPin(memberId) {
+  const member = state.managedMembers.find((item) => item.id === memberId);
+  if (!member || !window.confirm(`确认将“${member.name}”的 PIN 重置为 123456 吗？`)) return;
+  try {
+    await request(`/api/admin/members/${encodeURIComponent(memberId)}/reset-pin`, { method: "POST", headers: adminHeaders() });
+    showToast(`“${member.name}”的 PIN 已重置为 123456。`);
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
 async function deleteMember(memberId) {
   const member = state.managedMembers.find((item) => item.id === memberId);
   if (!member || !window.confirm(`确认永久删除“${member.name}”吗？该账号、全部训练记录和现场照片都将被删除，且无法恢复。`)) return;
@@ -356,7 +367,7 @@ function renderAdminVisualization(visualization, now) {
   $("adminRankingChart").innerHTML = ranking.length ? `<div class="admin-chart-list-scroll"><div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无排名数据。</p>';
   const totalMembers = safeVisualization.reachedMembers + safeVisualization.remainingMembers;
   const reachedRatio = totalMembers ? safeVisualization.reachedMembers / totalMembers : 0;
-  $("adminAttainmentChart").innerHTML = `<div class="attainment-ring-layout"><div class="attainment-ring" aria-label="达标率 ${Math.round(reachedRatio * 100)}%"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="attainment-ring-track" cx="60" cy="60" r="48" pathLength="100"/><circle class="attainment-ring-value" cx="60" cy="60" r="48" pathLength="100" stroke-dasharray="${reachedRatio * 100} 100"/></svg><strong>${Math.round(reachedRatio * 100)}<small>%</small></strong></div><div class="attainment-summary"><strong>${safeVisualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><small><i class="attainment-key reached"></i>达标 ${safeVisualization.reachedMembers} 人　<i class="attainment-key remaining"></i>未达标 ${safeVisualization.remainingMembers} 人</small></div></div>`;
+  $("adminAttainmentChart").innerHTML = `<div class="attainment-ring-layout"><div class="attainment-ring" aria-label="已完成 ${safeVisualization.reachedMembers} 人，共 ${totalMembers} 人"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="attainment-ring-track" cx="60" cy="60" r="48" pathLength="100"/><circle class="attainment-ring-value" cx="60" cy="60" r="48" pathLength="100" stroke-dasharray="${reachedRatio * 100} 100"/></svg><strong>${safeVisualization.reachedMembers}<small> / ${totalMembers}人</small></strong></div><div class="attainment-summary"><p>已完成月度目标</p><small><i class="attainment-key reached"></i>达标 ${safeVisualization.reachedMembers} 人　<i class="attainment-key remaining"></i>未达标 ${safeVisualization.remainingMembers} 人</small></div></div>`;
   const frequency = safeVisualization.frequency || [];
   const maxFrequency = Math.max(...frequency.map((item) => item.count), 1);
   $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="admin-chart-list-scroll"><div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无频率数据。</p>';
@@ -836,17 +847,30 @@ document.addEventListener("focusin", (event) => { const item = event.target.clos
 document.addEventListener("pointerout", (event) => { if (event.target.closest(".chart-interactive") && !event.relatedTarget?.closest(".chart-interactive")) hideChartTooltip(); });
 document.addEventListener("focusout", (event) => { if (event.target.closest(".chart-interactive")) hideChartTooltip(); });
 let chartScrollDrag = null;
+function clearChartScrollDrag(event) {
+  if (!chartScrollDrag || (event?.pointerId !== undefined && event.pointerId !== chartScrollDrag.pointerId)) return;
+  const { scroller, pointerId } = chartScrollDrag;
+  chartScrollDrag = null;
+  if (scroller.hasPointerCapture?.(pointerId)) scroller.releasePointerCapture(pointerId);
+}
 document.addEventListener("pointerdown", (event) => {
   const scroller = event.target.closest(".chart-scroll");
-  if (!scroller || event.button !== 0) return;
-  chartScrollDrag = { scroller, startX: event.clientX, scrollLeft: scroller.scrollLeft };
+  if (!scroller || event.pointerType !== "mouse" || event.button !== 0 || scroller.scrollWidth <= scroller.clientWidth) return;
+  chartScrollDrag = { scroller, pointerId: event.pointerId, startX: event.clientX, scrollLeft: scroller.scrollLeft, dragging: false };
   scroller.setPointerCapture?.(event.pointerId);
 });
 document.addEventListener("pointermove", (event) => {
-  if (!chartScrollDrag) return;
-  chartScrollDrag.scroller.scrollLeft = chartScrollDrag.scrollLeft - (event.clientX - chartScrollDrag.startX);
-});
-document.addEventListener("pointerup", () => { chartScrollDrag = null; });
+  if (!chartScrollDrag || event.pointerId !== chartScrollDrag.pointerId) return;
+  const distance = event.clientX - chartScrollDrag.startX;
+  if (!chartScrollDrag.dragging && Math.abs(distance) < 5) return;
+  chartScrollDrag.dragging = true;
+  chartScrollDrag.scroller.scrollLeft = chartScrollDrag.scrollLeft - distance;
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+document.addEventListener("pointerup", clearChartScrollDrag);
+document.addEventListener("pointercancel", clearChartScrollDrag);
+document.addEventListener("lostpointercapture", clearChartScrollDrag);
+window.addEventListener("blur", () => clearChartScrollDrag());
 $("adminDashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("dashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("closePhotoLightbox").addEventListener("click", closePhotoLightbox);
@@ -860,6 +884,7 @@ $("memberManagementRows").addEventListener("click", (event) => {
   const memberId = event.target.dataset.memberId;
   if (!memberId) return;
   if (event.target.classList.contains("edit-member")) openMemberSheet(state.managedMembers.find((member) => member.id === memberId));
+  if (event.target.classList.contains("reset-member-pin")) resetMemberPin(memberId);
   if (event.target.classList.contains("disable-member")) disableMember(memberId);
   if (event.target.classList.contains("delete-member")) deleteMember(memberId);
 });

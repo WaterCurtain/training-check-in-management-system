@@ -367,6 +367,14 @@ async function handleApi(request, response, pathname) {
     }
     return sendJson(response, 200, { member: { ...statements.memberAny.get(id), active: Boolean(statements.memberAny.get(id).active) } });
   }
+  const resetPinMatch = /^\/api\/admin\/members\/([^/]+)\/reset-pin$/.exec(pathname);
+  if (request.method === "POST" && resetPinMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const id = decodeURIComponent(resetPinMatch[1]);
+    if (!statements.memberAny.get(id)) return sendError(response, 404, "成员不存在。");
+    statements.updateMemberPin.run(DEFAULT_MEMBER_PIN_HASH, id);
+    return sendJson(response, 200, { ok: true });
+  }
   const disableMatch = /^\/api\/admin\/members\/([^/]+)\/disable$/.exec(pathname);
   if (request.method === "POST" && disableMatch) {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
