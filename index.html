@@ -53,7 +53,7 @@
           <form id="adminLoginForm" class="identity-form">
             <label>
               <span>管理员账号</span>
-              <input id="adminAccount" value="Admin" autocomplete="username" required />
+              <input id="adminAccount" autocomplete="username" placeholder="请输入管理员账号" required />
             </label>
             <label>
               <span>6 位 PIN</span>
@@ -82,7 +82,7 @@
               <h1 id="welcomeTitle">早上好，张伟</h1>
               <p id="workshopLabel">仪控维修一组 · 安全规范，记录真实</p>
             </div>
-            <button id="switchMember" class="text-button" type="button">切换成员</button>
+            <button id="switchMember" class="text-button" type="button">退出登录</button>
           </section>
 
           <section class="training-hero" id="trainingHero" aria-labelledby="trainingStatusTitle">
@@ -152,6 +152,18 @@
                 <span id="trainingInsightMeta">距离目标还需 16小时</span>
               </div>
             </div>
+          </section>
+
+          <section class="calendar-section" aria-labelledby="calendarTitle">
+            <div class="section-heading compact">
+              <div>
+                <h2 id="calendarTitle">训练日历</h2>
+                <p id="calendarSummary">选择有记录的日期，查看当天的实训文字记录与现场凭证。</p>
+              </div>
+              <span class="calendar-key"><i aria-hidden="true"></i>有实训记录</span>
+            </div>
+            <div class="training-calendar" id="trainingCalendar" aria-label="本月实训日历"></div>
+            <section class="calendar-detail" id="calendarDetail" aria-live="polite"></section>
           </section>
 
           <section class="history-section" aria-labelledby="historyTitle">

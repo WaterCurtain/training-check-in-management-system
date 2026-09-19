@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "" };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "" };
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -300,17 +300,20 @@ async function deleteMember(memberId) {
 }
 
 function renderAdminVisualization(visualization) {
-  const daily = visualization.daily;
+  const safeVisualization = visualization || { daily: [], ranking: [], frequency: [], reachedMembers: 0, remainingMembers: 0 };
+  const daily = safeVisualization.daily || [];
   const total = daily.reduce((sum, item) => sum + item.minutes, 0);
   $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
   $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), daily.map((item) => `${item.day}日`), "本月全员每日实训时长趋势图") : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
-  const maxRank = Math.max(...visualization.ranking.map((item) => item.minutes), 1);
-  $("adminRankingChart").innerHTML = visualization.ranking.length ? `<div class="ranking-list">${visualization.ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div>` : '<p class="admin-empty">暂无排名数据。</p>';
-  const totalMembers = visualization.reachedMembers + visualization.remainingMembers;
-  const reachedRatio = totalMembers ? visualization.reachedMembers / totalMembers : 0;
-  $("adminAttainmentChart").innerHTML = `<div class="attainment-summary"><strong>${visualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><div class="attainment-track"><i style="--attainment-progress:${reachedRatio}"></i></div><small>未达标 ${visualization.remainingMembers} 人</small></div>`;
-  const maxFrequency = Math.max(...visualization.frequency.map((item) => item.count), 1);
-  $("adminFrequencyChart").innerHTML = visualization.frequency.length ? `<div class="frequency-list">${visualization.frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
+  const ranking = safeVisualization.ranking || [];
+  const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
+  $("adminRankingChart").innerHTML = ranking.length ? `<div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div>` : '<p class="admin-empty">暂无排名数据。</p>';
+  const totalMembers = safeVisualization.reachedMembers + safeVisualization.remainingMembers;
+  const reachedRatio = totalMembers ? safeVisualization.reachedMembers / totalMembers : 0;
+  $("adminAttainmentChart").innerHTML = `<div class="attainment-summary"><strong>${safeVisualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><div class="attainment-track"><i style="--attainment-progress:${reachedRatio}"></i></div><small>未达标 ${safeVisualization.remainingMembers} 人</small></div>`;
+  const frequency = safeVisualization.frequency || [];
+  const maxFrequency = Math.max(...frequency.map((item) => item.count), 1);
+  $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
 }
 
 function renderAdminRecords() {
@@ -380,6 +383,7 @@ async function setupIdentity() {
       state.memberId = data.member.id;
       applyDashboard(data);
       state.showAllRecords = false;
+      state.selectedCalendarDate = "";
       $("identityError").textContent = "";
       $("identityView").classList.add("hidden");
       $("dashboard").classList.remove("hidden");
@@ -426,6 +430,7 @@ function render() {
   renderTrainingHero();
   renderStats();
   renderAnalytics();
+  renderCalendar();
   renderRecords();
 }
 
@@ -499,6 +504,40 @@ function renderAnalytics() {
   $("trainingInsightValue").textContent = `${Math.round(ratio * 100)}%`;
   $("trainingInsightMeta").textContent = stats.monthMinutes >= stats.goalMinutes ? "已完成本月 16 小时目标" : `距离目标还需 ${formatMinutes(stats.goalMinutes - stats.monthMinutes)}`;
   $("trainingInsightText").textContent = `累计 ${formatMinutes(stats.monthMinutes)}，${stats.monthCount} 次实训。`;
+}
+
+function renderCalendar() {
+  const now = new Date(state.serverNow);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
+  const recordsByDate = new Map();
+  state.records.filter((record) => {
+    const date = new Date(record.start);
+    return date.getFullYear() === year && date.getMonth() === month;
+  }).forEach((record) => {
+    const date = inputDate(record.start);
+    if (!recordsByDate.has(date)) recordsByDate.set(date, []);
+    recordsByDate.get(date).push(record);
+  });
+  const availableDates = [...recordsByDate.keys()].sort();
+  if (!state.selectedCalendarDate || !recordsByDate.has(state.selectedCalendarDate)) state.selectedCalendarDate = availableDates.at(-1) || "";
+  $("calendarSummary").textContent = availableDates.length ? `本月有 ${availableDates.length} 个训练日；已选 ${state.selectedCalendarDate ? formatDate(`${state.selectedCalendarDate}T00:00:00`) : "最近记录"}。` : "本月暂无已完成的实训记录。完成签到后会自动显示在日历中。";
+  const weekdays = ["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span class="calendar-weekday">${day}</span>`).join("");
+  const blanks = Array.from({ length: leadingDays }, () => '<span class="calendar-blank" aria-hidden="true"></span>').join("");
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const records = recordsByDate.get(date) || [];
+    const minutes = records.reduce((total, record) => total + (new Date(record.end) - new Date(record.start)) / 60000, 0);
+    const active = date === state.selectedCalendarDate;
+    return `<button class="calendar-day${records.length ? " has-record" : ""}${active ? " is-selected" : ""}" type="button" data-calendar-date="${date}" ${records.length ? "" : "disabled"} aria-label="${month + 1}月${day}日${records.length ? `，${records.length} 条实训记录，共 ${formatMinutes(minutes)}` : "，无实训记录"}"><strong>${day}</strong>${records.length ? `<span>${formatMinutes(minutes)}</span><i aria-hidden="true"></i>` : ""}</button>`;
+  }).join("");
+  $("trainingCalendar").innerHTML = weekdays + blanks + days;
+  const selectedRecords = recordsByDate.get(state.selectedCalendarDate) || [];
+  const selectedMinutes = selectedRecords.reduce((total, record) => total + (new Date(record.end) - new Date(record.start)) / 60000, 0);
+  $("calendarDetail").innerHTML = selectedRecords.length ? `<header><div><h3>${formatDate(`${state.selectedCalendarDate}T00:00:00`)}</h3><p>${selectedRecords.length} 条实训记录 · 共 ${formatMinutes(selectedMinutes)}</p></div><div class="calendar-mini-chart" aria-label="当天训练时长 ${formatMinutes(selectedMinutes)}"><i style="--calendar-hours:${Math.min(selectedMinutes / 480, 1)}"></i><span>${formatChartHours(selectedMinutes)}</span></div></header><div class="calendar-record-list">${selectedRecords.map((record) => `<article><div><strong>现场实训记录</strong><p>${formatClock(record.start)} 开始 · ${formatClock(record.end)} 结束</p><span>${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</span></div><div class="calendar-record-media"><img src="${escapeHtml(record.startPhoto)}" alt="开始现场照片" /><img src="${escapeHtml(record.endPhoto)}" alt="结束现场照片" /></div></article>`).join("")}</div>` : '<p class="calendar-empty">选择有蓝点的日期，即可查看当天的实训文字记录和现场照片。</p>';
 }
 
 function renderRecords() {
@@ -600,12 +639,13 @@ async function confirmCheckin() {
   }
 }
 
-$("switchMember").addEventListener("click", () => { $("dashboard").classList.add("hidden"); $("identityView").classList.remove("hidden"); $("pinInput").value = ""; $("usernameInput").focus(); });
+$("switchMember").addEventListener("click", () => { state.memberId = null; state.active = null; state.records = []; state.statistics = null; $("dashboard").classList.add("hidden"); $("identityView").classList.remove("hidden"); $("usernameInput").value = ""; $("pinInput").value = ""; $("identityError").textContent = ""; $("usernameInput").focus(); });
 $("closeSheet").addEventListener("click", closeSheet);
 $("sheetBackdrop").addEventListener("click", closeSheet);
 $("photoInput").addEventListener("change", handlePhoto);
 $("confirmCheckin").addEventListener("click", confirmCheckin);
 $("showAllRecords").addEventListener("click", () => { state.showAllRecords = !state.showAllRecords; renderRecords(); });
+$("trainingCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-calendar-date]"); if (!day || day.disabled) return; state.selectedCalendarDate = day.dataset.calendarDate; renderCalendar(); });
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
 $("memberLogout").addEventListener("click", leaveAdminDashboard);
 $("adminRecordsLogout").addEventListener("click", leaveAdminDashboard);
