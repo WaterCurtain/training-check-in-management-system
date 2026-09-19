@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b6cf4" />
+    <title>电气仪控实训室 · 实训签到</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="identity-view" id="identityView" aria-labelledby="identityTitle">
+        <div class="identity-visual" aria-hidden="true">
+          <div class="brand-mark"><span></span><span></span><span></span></div>
+          <p>电气仪控实训室</p>
+          <small>训练记录 · 现场可核验</small>
+        </div>
+        <div class="identity-panel">
+          <div class="panel-copy">
+            <h1 id="identityTitle">开始今天的实训</h1>
+            <p>选择身份并验证 PIN 后，即可记录本次实训现场与时长。</p>
+          </div>
+          <form id="identityForm" class="identity-form">
+            <label>
+              <span>实训成员</span>
+              <select id="memberSelect" required>
+                <option value="zhangwei">张伟 · 仪控维修一组</option>
+                <option value="liang">李昂 · 电气维修二组</option>
+                <option value="wangyu">王宇 · 自动化实训组</option>
+              </select>
+            </label>
+            <label>
+              <span>6 位 PIN</span>
+              <input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入 6 位 PIN" required />
+            </label>
+            <p class="field-hint">演示 PIN：123456</p>
+            <p class="form-error" id="identityError" role="alert"></p>
+            <button class="primary-button" type="submit">进入我的实训</button>
+          </form>
+          <p class="demo-note">当前为本地交互原型，时间与照片仅保存在此浏览器。</p>
+        </div>
+      </section>
+
+      <section class="dashboard hidden" id="dashboard" aria-live="polite">
+        <header class="topbar">
+          <a class="wordmark" href="#" aria-label="电气仪控实训室首页">
+            <span class="wordmark-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>电气仪控实训室<small>TRAINING LOG</small></span>
+          </a>
+          <div class="profile" id="profileName"></div>
+        </header>
+
+        <div class="content">
+          <section class="welcome-row">
+            <div>
+              <p id="todayLabel" class="date-label"></p>
+              <h1 id="welcomeTitle">早上好，张伟</h1>
+              <p id="workshopLabel">仪控维修一组 · 安全规范，记录真实</p>
+            </div>
+            <button id="switchMember" class="text-button" type="button">切换成员</button>
+          </section>
+
+          <section class="training-hero" id="trainingHero" aria-labelledby="trainingStatusTitle">
+            <div class="status-line">
+              <span class="status-badge" id="statusBadge">准备就绪</span>
+              <span id="statusMeta">尚未开始实训</span>
+            </div>
+            <div class="hero-main">
+              <div>
+                <h2 id="trainingStatusTitle">今天还没有实训记录</h2>
+                <p id="heroDescription">开始实训后，请上传现场照片作为本次记录凭证。</p>
+              </div>
+              <strong class="timer" id="timer">00:00:00</strong>
+            </div>
+            <div class="hero-action" id="heroAction"></div>
+          </section>
+
+          <section class="summary-section" aria-labelledby="summaryTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="summaryTitle">本月训练进度</h2>
+                <p>目标为 16 小时，完成后自动显示达标状态。</p>
+              </div>
+              <strong id="progressText">13小时40分钟 <span>/ 16小时</span></strong>
+            </div>
+            <div class="progress-track" aria-label="本月训练完成进度"><span id="progressBar"></span></div>
+            <div class="progress-details">
+              <div><span>已完成</span><strong id="completedTime">13小时40分钟</strong></div>
+              <div><span>目标时长</span><strong>16小时</strong></div>
+              <div><span>仍需</span><strong id="remainingTime">2小时20分钟</strong></div>
+              <div><span>状态</span><strong id="goalStatus" class="warning-text">未达标</strong></div>
+            </div>
+          </section>
+
+          <section class="stat-grid" aria-label="个人实训统计">
+            <article><span class="stat-icon clock-icon" aria-hidden="true"></span><span>今日实训</span><strong id="todayTime">0分钟</strong></article>
+            <article><span class="stat-icon chart-icon" aria-hidden="true"></span><span>本周实训</span><strong id="weekTime">4小时20分钟</strong></article>
+            <article><span class="stat-icon calendar-icon" aria-hidden="true"></span><span>本月次数</span><strong id="monthCount">8 次</strong></article>
+          </section>
+
+          <section class="history-section" aria-labelledby="historyTitle">
+            <div class="section-heading compact">
+              <div>
+                <h2 id="historyTitle">最近实训记录</h2>
+                <p>每条记录均关联开始与结束现场照片。</p>
+              </div>
+              <button class="text-button" id="showAllRecords" type="button">查看全部</button>
+            </div>
+            <div class="record-list" id="recordList"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <section class="checkin-sheet hidden" id="checkinSheet" aria-modal="true" role="dialog" aria-labelledby="sheetTitle">
+      <div class="sheet-backdrop" id="sheetBackdrop"></div>
+      <div class="sheet-card">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header">
+          <div>
+            <p id="sheetEyebrow"></p>
+            <h2 id="sheetTitle"></h2>
+          </div>
+          <button class="close-button" id="closeSheet" aria-label="关闭">×</button>
+        </div>
+        <div class="checkin-context" id="checkinContext"></div>
+        <label class="photo-dropzone" id="photoDropzone" for="photoInput">
+          <input id="photoInput" type="file" accept="image/*" capture="environment" />
+          <span class="camera-mark" aria-hidden="true"></span>
+          <strong id="photoTitle">拍摄或上传现场照片</strong>
+          <small id="photoHint">照片为本次签到的必填凭证</small>
+          <img id="photoPreview" alt="现场照片预览" class="hidden" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" />
+        </label>
+        <p class="form-error" id="photoError" role="alert"></p>
+        <button class="primary-button" id="confirmCheckin" type="button"></button>
+      </div>
+    </section>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
