@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordPage: 1, adminCalendarDate: "" };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, showAllRecords: false, selectedCalendarDate: "", submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDate: "", adminRecordDraftMemberId: "", adminRecordDraftDate: "", adminRecordPage: 1, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
 
@@ -52,6 +52,23 @@ function formatChartHours(minutes) {
   return `${Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(1)}小时`;
 }
 
+function chartScaleMax(values) {
+  const highest = Math.max(...values, 1);
+  return Math.max(30, Math.ceil((highest * 1.15) / 30) * 30);
+}
+
+function chartLabelIndexes(length, maximum = 7) {
+  if (length <= maximum) return Array.from({ length }, (_, index) => index);
+  const step = Math.ceil((length - 1) / (maximum - 1));
+  const indexes = Array.from({ length }, (_, index) => index).filter((index) => index % step === 0);
+  if (indexes.at(-1) !== length - 1) indexes.push(length - 1);
+  return indexes;
+}
+
+function chartDateLabel(date) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", weekday: "short" }).format(new Date(date)).replace(" ", "");
+}
+
 function chartRange(records, start, days, now) {
   const values = Array(days).fill(0);
   for (let day = 0; day < days; day += 1) {
@@ -68,8 +85,8 @@ function chartRecords() {
   return state.active ? [...state.records, state.active] : state.records;
 }
 
-function renderBarChart(values, labels) {
-  const max = Math.max(...values, 60);
+function renderBarChart(values, labels, shortLabels = labels) {
+  const max = chartScaleMax(values);
   const width = 680;
   const height = 236;
   const plot = { left: 42, right: 14, top: 18, bottom: 33 };
@@ -77,22 +94,22 @@ function renderBarChart(values, labels) {
   const plotHeight = height - plot.top - plot.bottom;
   const step = plotWidth / values.length;
   const barWidth = Math.max(4, Math.min(16, step * .58));
-  const grid = [0, .5, 1].map((ratio) => {
+  const grid = [0, 1 / 3, 2 / 3, 1].map((ratio) => {
     const y = plot.top + plotHeight * (1 - ratio);
     return `<line x1="${plot.left}" x2="${width - plot.right}" y1="${y}" y2="${y}" /><text x="0" y="${y + 4}">${formatChartHours(max * ratio).replace("小时", "")}</text>`;
   }).join("");
+  const visibleLabels = new Set(chartLabelIndexes(values.length));
   const bars = values.map((value, index) => {
     const barHeight = value ? Math.max(3, plotHeight * value / max) : 2;
     const x = plot.left + step * index + (step - barWidth) / 2;
     const y = plot.top + plotHeight - barHeight;
-    const showLabel = index === 0 || index === values.length - 1 || index % 7 === 0;
-    return `<g><title>${labels[index]}：${formatMinutes(value)}</title><rect class="${value ? "chart-bar" : "chart-bar-zero"}" x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="${Math.min(3, barWidth / 2)}" />${showLabel ? `<text class="chart-x-label" x="${x + barWidth / 2}" y="${height - 8}">${labels[index]}</text>` : ""}</g>`;
+    return `<g class="chart-interactive" tabindex="0" data-chart-label="${escapeHtml(labels[index])}" data-chart-value="${formatMinutes(value)}"><title>${labels[index]}：${formatMinutes(value)}</title><rect class="chart-hit-area" x="${plot.left + step * index + step * .08}" y="${plot.top}" width="${step * .84}" height="${plotHeight}" /><rect class="${value ? "chart-bar" : "chart-bar-zero"}" x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="${Math.min(3, barWidth / 2)}" />${visibleLabels.has(index) ? `<text class="chart-x-label" x="${x + barWidth / 2}" y="${height - 8}">${shortLabels[index]}</text>` : ""}</g>`;
   }).join("");
   return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="本月每日实训时长柱状图。最高单日 ${formatMinutes(Math.max(...values))}"><g class="chart-grid">${grid}</g><g>${bars}</g></svg>`;
 }
 
-function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图") {
-  const max = Math.max(...values, 60);
+function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线图", shortLabels = labels) {
+  const max = chartScaleMax(values);
   const width = 520;
   const height = 220;
   const plot = { left: 38, right: 14, top: 18, bottom: 34 };
@@ -101,11 +118,13 @@ function renderLineChart(values, labels, ariaLabel = "本周训练趋势折线�
   const pointAt = (value, index) => ({ x: plot.left + plotWidth * index / (values.length - 1), y: plot.top + plotHeight * (1 - value / max) });
   const points = values.map(pointAt);
   const polyline = points.map(({ x, y }) => `${x},${y}`).join(" ");
-  const grid = [0, .5, 1].map((ratio) => {
+  const grid = [0, 1 / 3, 2 / 3, 1].map((ratio) => {
     const y = plot.top + plotHeight * (1 - ratio);
     return `<line x1="${plot.left}" x2="${width - plot.right}" y1="${y}" y2="${y}" /><text x="0" y="${y + 4}">${formatChartHours(max * ratio).replace("小时", "")}</text>`;
   }).join("");
-  const dots = points.map(({ x, y }, index) => `<g><title>${labels[index]}：${formatMinutes(values[index])}</title><circle class="chart-dot" cx="${x}" cy="${y}" r="4" /><text class="chart-x-label" x="${x}" y="${height - 8}">${labels[index]}</text></g>`).join("");
+  const visibleLabels = new Set(chartLabelIndexes(values.length));
+  const hitWidth = Math.max(24, plotWidth / Math.max(values.length - 1, 1) * .9);
+  const dots = points.map(({ x, y }, index) => `<g class="chart-interactive" tabindex="0" data-chart-label="${escapeHtml(labels[index])}" data-chart-value="${formatMinutes(values[index])}"><title>${labels[index]}：${formatMinutes(values[index])}</title><rect class="chart-hit-area" x="${Math.max(plot.left, x - hitWidth / 2)}" y="${plot.top}" width="${Math.min(hitWidth, width - plot.right - Math.max(plot.left, x - hitWidth / 2))}" height="${plotHeight}" /><circle class="chart-dot" cx="${x}" cy="${y}" r="4" />${visibleLabels.has(index) ? `<text class="chart-x-label" x="${x}" y="${height - 8}">${shortLabels[index]}</text>` : ""}</g>`).join("");
   return `<svg class="training-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${ariaLabel}。累计 ${formatMinutes(values.reduce((total, value) => total + value, 0))}"><g class="chart-grid">${grid}</g><polyline class="chart-line" points="${polyline}" />${dots}</svg>`;
 }
 
@@ -200,6 +219,8 @@ async function showAdminRecords(memberId = "") {
   try {
     state.adminRecordMemberId = memberId;
     state.adminRecordDate = "";
+    state.adminRecordDraftMemberId = memberId;
+    state.adminRecordDraftDate = "";
     state.adminRecordPage = 1;
     state.adminCalendarDate = "";
     await loadAdminRecords();
@@ -303,19 +324,21 @@ async function deleteMember(memberId) {
   }
 }
 
-function renderAdminVisualization(visualization) {
+function renderAdminVisualization(visualization, now) {
   const safeVisualization = visualization || { daily: [], ranking: [], frequency: [], reachedMembers: 0, remainingMembers: 0 };
-  const daily = safeVisualization.daily || [];
+  const daily = (safeVisualization.daily || []).filter((item) => item.day <= new Date(now).getDate());
   const total = daily.reduce((sum, item) => sum + item.minutes, 0);
   const completed = daily.reduce((sum, item) => sum + (item.count || 0), 0);
   $("adminDailySummary").textContent = total ? `本月累计 ${formatMinutes(total)}，完成 ${completed} 次；最高单日 ${formatMinutes(Math.max(...daily.map((item) => item.minutes)))}` : "本月尚无实训记录";
-  $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), daily.map((item) => `${item.day}日`), "本月全员每日实训时长趋势图") : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
+  const currentMonth = new Date(now);
+  const dailyDates = daily.map((item) => new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day));
+  $("adminDailyChart").innerHTML = total ? renderLineChart(daily.map((item) => item.minutes), dailyDates.map(chartDateLabel), "本月全员每日实训时长趋势图", daily.map((item) => `${item.day}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。</p>';
   const ranking = safeVisualization.ranking || [];
   const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
   $("adminRankingChart").innerHTML = ranking.length ? `<div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div>` : '<p class="admin-empty">暂无排名数据。</p>';
   const totalMembers = safeVisualization.reachedMembers + safeVisualization.remainingMembers;
   const reachedRatio = totalMembers ? safeVisualization.reachedMembers / totalMembers : 0;
-  $("adminAttainmentChart").innerHTML = `<div class="attainment-summary"><strong>${safeVisualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><div class="attainment-track"><i style="--attainment-progress:${reachedRatio}"></i></div><small>未达标 ${safeVisualization.remainingMembers} 人</small></div>`;
+  $("adminAttainmentChart").innerHTML = `<div class="attainment-ring-layout"><div class="attainment-ring" aria-label="达标率 ${Math.round(reachedRatio * 100)}%"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="attainment-ring-track" cx="60" cy="60" r="48" pathLength="100"/><circle class="attainment-ring-value" cx="60" cy="60" r="48" pathLength="100" stroke-dasharray="${reachedRatio * 100} 100"/></svg><strong>${Math.round(reachedRatio * 100)}<small>%</small></strong></div><div class="attainment-summary"><strong>${safeVisualization.reachedMembers}<span> / ${totalMembers} 人</span></strong><p>已完成月度目标</p><small><i class="attainment-key reached"></i>达标 ${safeVisualization.reachedMembers} 人　<i class="attainment-key remaining"></i>未达标 ${safeVisualization.remainingMembers} 人</small></div></div>`;
   const frequency = safeVisualization.frequency || [];
   const maxFrequency = Math.max(...frequency.map((item) => item.count), 1);
   $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div>` : '<p class="admin-empty">暂无频率数据。</p>';
@@ -363,8 +386,8 @@ function renderAdminRecordCalendar(records) {
 function renderAdminRecords() {
   const memberFilter = $("adminRecordMemberFilter");
   memberFilter.innerHTML = `<option value="">全部成员</option>${state.adminRecordMembers.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
-  memberFilter.value = state.adminRecordMemberId;
-  $("adminRecordDateFilter").value = state.adminRecordDate;
+  memberFilter.value = state.adminRecordDraftMemberId;
+  $("adminRecordDateFilter").value = state.adminRecordDraftDate;
   const records = state.adminRecords.filter((record) => !state.adminRecordDate || inputDate(record.start) === state.adminRecordDate);
   const pages = Math.max(1, Math.ceil(records.length / ADMIN_RECORDS_PER_PAGE));
   state.adminRecordPage = Math.min(state.adminRecordPage, pages);
@@ -383,8 +406,9 @@ function renderAdminRecords() {
 }
 
 function renderAdminDashboard(data) {
+  state.adminDashboardData = data;
   $("adminDate").textContent = formatDate(data.now);
-  $("adminMonthMinutes").textContent = formatMinutes(data.summary.monthMinutes);
+  $("adminMonthMinutes").textContent = formatMinutes(data.summary.averageDailyMinutes);
   $("adminGoalMembers").textContent = `${data.summary.goalReachedMembers} 人`;
   $("adminActiveMembers").textContent = `${data.summary.activeMembers} 人`;
   $("adminCompletedSessions").textContent = `${data.summary.completedSessions} 次`;
@@ -394,8 +418,14 @@ function renderAdminDashboard(data) {
     const statusClass = member.active ? "admin-status-active" : member.monthMinutes >= member.goalMinutes ? "admin-status-complete" : "admin-status-pending";
     return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${Math.round(member.monthMinutes / member.goalMinutes * 100)}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td><td><button class="text-button admin-member-records" data-member-id="${escapeHtml(member.id)}" type="button">查看记录</button></td></tr>`;
   }).join("");
-  renderAdminVisualization(data.visualization);
-  $("adminRecords").innerHTML = data.recentRecords.length ? data.recentRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)} <span class="admin-record-workshop">${escapeHtml(record.workshop || "未设置车间")}</span></strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos">${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}</div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
+  renderAdminVisualization(data.visualization, data.now);
+  state.adminOverviewRecords = data.recentRecords;
+  const pages = Math.max(1, Math.ceil(data.recentRecords.length / ADMIN_RECORDS_PER_PAGE));
+  state.adminOverviewRecordPage = Math.min(state.adminOverviewRecordPage, pages);
+  const start = (state.adminOverviewRecordPage - 1) * ADMIN_RECORDS_PER_PAGE;
+  const pageRecords = data.recentRecords.slice(start, start + ADMIN_RECORDS_PER_PAGE);
+  $("adminRecords").innerHTML = pageRecords.length ? pageRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)} <span class="admin-record-workshop">${escapeHtml(record.workshop || "未设置车间")}</span></strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos">${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}</div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
+  $("adminOverviewRecordPagination").innerHTML = data.recentRecords.length > ADMIN_RECORDS_PER_PAGE ? `<span>第 ${state.adminOverviewRecordPage} / ${pages} 页</span><div><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage - 1}" type="button" ${state.adminOverviewRecordPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage + 1}" type="button" ${state.adminOverviewRecordPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function openPhotoLightbox(url, label) {
@@ -528,22 +558,21 @@ function renderStats() {
 function renderAnalytics() {
   const now = new Date(state.serverNow);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const records = chartRecords();
-  const monthValues = chartRange(records, monthStart, daysInMonth, now);
+  const monthValues = chartRange(records, monthStart, now.getDate(), now);
   const monthTotal = monthValues.reduce((total, value) => total + value, 0);
   const monthActiveDays = monthValues.filter(Boolean).length;
-  const monthLabels = monthValues.map((_, index) => `${index + 1}日`);
+  const monthDates = monthValues.map((_, index) => new Date(now.getFullYear(), now.getMonth(), index + 1));
   $("dailyChartSummary").textContent = monthTotal ? `本月共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : "本月暂无实训数据";
-  $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthLabels) : '<p class="chart-empty">本月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>';
+  $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthDates.map(chartDateLabel), monthDates.map((date) => `${date.getDate()}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>';
 
   const monday = startOfDay(now);
   monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
   const weekValues = chartRange(records, monday, 7, now);
   const weekTotal = weekValues.reduce((total, value) => total + value, 0);
-  const weekLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const weekDates = weekValues.map((_, index) => { const date = new Date(monday); date.setDate(monday.getDate() + index); return date; });
   $("weeklyChartSummary").textContent = weekTotal ? `本周累计 ${formatMinutes(weekTotal)}` : "本周暂无实训数据";
-  $("weeklyTrainingChart").innerHTML = weekTotal ? renderLineChart(weekValues, weekLabels) : '<p class="chart-empty">本周还没有可统计的实训记录。</p>';
+  $("weeklyTrainingChart").innerHTML = weekTotal ? renderLineChart(weekValues, weekDates.map(chartDateLabel), "本周训练趋势折线图", weekDates.map((date) => `周${["日", "一", "二", "三", "四", "五", "六"][date.getDay()]}`)) : '<p class="chart-empty">本周还没有可统计的实训记录。</p>';
 
   const stats = state.statistics;
   const ratio = Math.min(stats.monthMinutes / stats.goalMinutes, 1);
@@ -702,11 +731,38 @@ $("adminMemberRows").addEventListener("click", (event) => {
   const memberId = event.target.dataset.memberId;
   if (memberId && event.target.classList.contains("admin-member-records")) showAdminRecords(memberId);
 });
-$("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordMemberId = event.target.value; state.adminRecordDate = ""; loadAdminRecords(); });
-$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDate = event.target.value; state.adminRecordPage = 1; renderAdminRecords(); });
-$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
-$("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; state.adminRecordDate = state.adminCalendarDate; state.adminRecordPage = 1; renderAdminRecords(); });
+$("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordDraftMemberId = event.target.value; });
+$("adminRecordDateFilter").addEventListener("change", (event) => { state.adminRecordDraftDate = event.target.value; });
+$("applyAdminRecordFilters").addEventListener("click", () => {
+  const memberChanged = state.adminRecordMemberId !== state.adminRecordDraftMemberId;
+  state.adminRecordMemberId = state.adminRecordDraftMemberId;
+  state.adminRecordDate = state.adminRecordDraftDate;
+  state.adminRecordPage = 1;
+  state.adminCalendarDate = state.adminRecordDate;
+  if (memberChanged) loadAdminRecords(); else renderAdminRecords();
+});
+$("clearAdminRecordFilters").addEventListener("click", () => { state.adminRecordMemberId = ""; state.adminRecordDate = ""; state.adminRecordDraftMemberId = ""; state.adminRecordDraftDate = ""; state.adminRecordPage = 1; state.adminCalendarDate = ""; loadAdminRecords(); });
+$("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; state.adminRecordDate = state.adminCalendarDate; state.adminRecordDraftDate = state.adminCalendarDate; state.adminRecordPage = 1; renderAdminRecords(); });
 $("adminRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-record-page]"); if (!button || button.disabled) return; state.adminRecordPage = Number(button.dataset.adminRecordPage); renderAdminRecords(); });
+$("adminOverviewRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-overview-page]"); if (!button || button.disabled || !state.adminDashboardData) return; state.adminOverviewRecordPage = Number(button.dataset.adminOverviewPage); renderAdminDashboard(state.adminDashboardData); });
+function showChartTooltip(item) {
+  const tooltip = $("chartTooltip");
+  const rect = item.getBoundingClientRect();
+  tooltip.textContent = `${item.dataset.chartLabel} · ${item.dataset.chartValue}`;
+  tooltip.style.left = `${Math.min(window.innerWidth - 12, Math.max(12, rect.left + rect.width / 2))}px`;
+  tooltip.style.top = `${Math.max(12, rect.top - 10)}px`;
+  tooltip.classList.remove("hidden");
+  document.querySelectorAll(".chart-interactive.is-highlighted").forEach((element) => element.classList.remove("is-highlighted"));
+  item.classList.add("is-highlighted");
+}
+function hideChartTooltip() {
+  $("chartTooltip").classList.add("hidden");
+  document.querySelectorAll(".chart-interactive.is-highlighted").forEach((element) => element.classList.remove("is-highlighted"));
+}
+document.addEventListener("pointerover", (event) => { const item = event.target.closest(".chart-interactive"); if (item) showChartTooltip(item); });
+document.addEventListener("focusin", (event) => { const item = event.target.closest(".chart-interactive"); if (item) showChartTooltip(item); });
+document.addEventListener("pointerout", (event) => { if (event.target.closest(".chart-interactive") && !event.relatedTarget?.closest(".chart-interactive")) hideChartTooltip(); });
+document.addEventListener("focusout", (event) => { if (event.target.closest(".chart-interactive")) hideChartTooltip(); });
 $("adminDashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("dashboard").addEventListener("click", (event) => { const photo = event.target.closest("button[data-photo-url]"); if (photo) openPhotoLightbox(photo.dataset.photoUrl, photo.dataset.photoLabel); });
 $("closePhotoLightbox").addEventListener("click", closePhotoLightbox);

@@ -180,6 +180,8 @@ function adminOverview() {
     return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
+  const elapsedDays = Math.max(1, now.getDate());
+  const averageDailyMinutes = members.length ? Math.round(monthMinutes / members.length / elapsedDays) : 0;
   const memberInfo = new Map(allMembers.map((member) => [member.id, member]));
   const daily = [];
   for (let cursor = new Date(monthStart); cursor < nextMonth; cursor.setDate(cursor.getDate() + 1)) {
@@ -192,12 +194,13 @@ function adminOverview() {
     now: now.toISOString(),
     summary: {
       monthMinutes,
+      averageDailyMinutes,
       goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
       activeMembers: memberStats.filter((member) => member.active).length,
       completedSessions: sessions.filter((session) => session.status === "completed").length,
     },
     members: memberStats,
-    recentRecords: sessions.filter((session) => session.status === "completed").slice(0, 10).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
+    recentRecords: sessions.filter((session) => session.status === "completed").map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
     visualization: {
       daily,
       ranking: [...memberStats].sort((left, right) => right.monthMinutes - left.monthMinutes).map((member) => ({ id: member.id, name: member.name, minutes: member.monthMinutes })),

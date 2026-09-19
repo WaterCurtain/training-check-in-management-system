@@ -170,7 +170,7 @@
             <div class="admin-actions"><span id="adminDate"></span><button class="text-button" id="adminLogout" type="button">退出管理端</button></div>
           </header>
           <section class="admin-kpis" aria-label="训练总览统计">
-            <article><span>本月训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>全员累计有效时长</small></article>
+            <article><span>人均每日训练时长</span><strong id="adminMonthMinutes">0小时</strong><small>按在用成员与本月已过天数计算</small></article>
             <article><span>目标达成人数</span><strong id="adminGoalMembers">0 人</strong><small>月度目标为 16 小时</small></article>
             <article><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
             <article><span>已完成实训</span><strong id="adminCompletedSessions">0 次</strong><small>全部有效完成记录</small></article>
@@ -189,11 +189,12 @@
           </section>
           <section class="admin-section" aria-labelledby="adminMembersTitle">
             <div class="admin-section-heading"><div><h2 id="adminMembersTitle">成员训练进度</h2><p>本月数据按服务器时间自动汇总。</p></div></div>
-            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度</th><th>实训状态</th><th>记录</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
+            <div class="admin-table-wrap"><table><thead><tr><th>姓名</th><th>所属车间</th><th>本月训练时长</th><th>目标进度<br /><small>要求 16 小时</small></th><th>实训状态</th><th>记录</th></tr></thead><tbody id="adminMemberRows"></tbody></table></div>
           </section>
           <section class="admin-section" aria-labelledby="adminRecordsTitle">
-            <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">最近实训记录</h2><p>最多展示 10 条；包含所属车间，点击照片可查看大图。</p></div></div>
+            <div class="admin-section-heading"><div><h2 id="adminRecordsTitle">实训记录列表</h2><p>按完成时间倒序；每页最多 10 条，包含所属车间，点击照片可查看大图。</p></div></div>
             <div class="admin-records" id="adminRecords"></div>
+            <div class="admin-record-pagination" id="adminOverviewRecordPagination"></div>
           </section>
         </main>
         <main class="admin-main hidden" id="adminRecordManagement">
@@ -206,16 +207,17 @@
             <div class="record-filters">
               <label><span>成员</span><select id="adminRecordMemberFilter"><option value="">全部成员</option></select></label>
               <label><span>日期</span><input id="adminRecordDateFilter" type="date" /></label>
+              <button class="primary-button admin-filter-button" id="applyAdminRecordFilters" type="button">确定筛选</button>
               <button class="text-button" id="clearAdminRecordFilters" type="button">清除筛选</button>
             </div>
           </section>
+          <div class="admin-record-groups" id="adminRecordGroups"></div>
+          <div class="admin-record-pagination" id="adminRecordPagination"></div>
           <section class="admin-section admin-record-calendar-section" aria-labelledby="adminRecordCalendarTitle">
             <div class="admin-section-heading"><div><h2 id="adminRecordCalendarTitle">成员训练日历</h2><p id="adminRecordCalendarSummary">加载中</p></div></div>
             <div class="training-calendar admin-training-calendar" id="adminRecordCalendar" aria-label="成员实训日历"></div>
             <section class="calendar-detail" id="adminRecordCalendarDetail" aria-live="polite"></section>
           </section>
-          <div class="admin-record-groups" id="adminRecordGroups"></div>
-          <div class="admin-record-pagination" id="adminRecordPagination"></div>
         </main>
         <main class="admin-main hidden" id="memberManagement">
           <header class="admin-header">
@@ -280,6 +282,7 @@
         <figcaption id="photoLightboxLabel"></figcaption>
       </figure>
     </section>
+    <div class="chart-tooltip hidden" id="chartTooltip" role="status"></div>
 
     <div class="toast hidden" id="toast" role="status"></div>
     <script src="app.js"></script>
