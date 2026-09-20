@@ -559,7 +559,7 @@ function renderAdminDashboard(data) {
   $("adminMonthMinutesComparison").textContent = formatAverageDailyComparison(data.summary.averageDailyMinutes, data.previousSummary.averageDailyMinutes);
   $("adminGoalMembersComparison").textContent = formatGoalMembersComparison(data.summary.goalReachedMembers, data.previousSummary.goalReachedMembers);
   $("adminActiveMembers").textContent = `${data.summary.activeMembers} 人`;
-  $("adminCompletedSessions").textContent = `${data.summary.completedSessions} 次`;
+  $("adminAbnormalRecords").textContent = `${data.summary.abnormalRecords} 条`;
   $("adminVisualsTitle").textContent = `${periodLabel}训练数据`;
   $("adminMembersTitle").textContent = `${periodLabel}成员训练进度`;
   $("adminMemberMonthSummary").textContent = `${periodLabel}数据`;

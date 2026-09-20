@@ -268,6 +268,7 @@ function adminOverview(year, month) {
       goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
       activeMembers: memberStats.filter((member) => member.active).length,
       completedSessions: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length,
+      abnormalRecords: sessions.filter((session) => abnormalTypes(session, now).length).length,
     },
     previousSummary: {
       averageDailyMinutes: previousAverageDailyMinutes,
