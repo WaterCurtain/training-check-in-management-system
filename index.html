@@ -274,13 +274,15 @@
           <button class="close-button" id="closeSheet" aria-label="关闭">×</button>
         </div>
         <div class="checkin-context" id="checkinContext"></div>
-        <label class="photo-dropzone" id="photoDropzone" for="photoInput">
-          <input id="photoInput" type="file" accept="image/*" capture="environment" />
+        <div class="photo-dropzone" id="photoDropzone">
+          <video id="cameraPreview" autoplay playsinline muted class="hidden" aria-label="后置相机预览"></video>
+          <canvas id="cameraCanvas" class="hidden"></canvas>
           <span class="camera-mark" aria-hidden="true"></span>
-          <strong id="photoTitle">拍摄或上传现场照片</strong>
+          <strong id="photoTitle">使用后置相机拍摄现场照片</strong>
           <small id="photoHint">照片为本次签到的必填凭证</small>
+          <button id="takePhoto" class="text-button" type="button">打开相机</button>
           <img id="photoPreview" alt="现场照片预览" class="hidden" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" />
-        </label>
+        </div>
         <p class="form-error photo-error" id="photoError" role="alert"></p>
         <button class="primary-button" id="confirmCheckin" type="button"></button>
       </div>

@@ -1,4 +1,3 @@
-data/
-.impeccable/
-DESIGN.md
-PRODUCT.md
+.wrangler/
+.dev.vars*
+worker-local.log

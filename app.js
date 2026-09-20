@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminExportMemberId: "", adminExporting: false, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false, abnormalDateFilter: "", abnormalPage: 1, auditDateFilter: "", auditActionFilter: "", auditQuery: "", auditPage: 1 };
+const state = { memberId: null, memberToken: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminExportMemberId: "", adminExporting: false, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false, abnormalDateFilter: "", abnormalPage: 1, auditDateFilter: "", auditActionFilter: "", auditQuery: "", auditPage: 1 };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
 const ADMIN_LISTS_PER_PAGE = 10;
@@ -31,9 +31,10 @@ function persistedAdminToken() {
   return window.name.startsWith(ADMIN_WINDOW_SESSION_PREFIX) ? window.name.slice(ADMIN_WINDOW_SESSION_PREFIX.length) : "";
 }
 
-function persistMemberSession(memberId) {
-  sessionStorage.setItem(MEMBER_SESSION_KEY, memberId);
-  window.name = `${MEMBER_WINDOW_SESSION_PREFIX}${memberId}`;
+function persistMemberSession(memberId, token) {
+  const value = JSON.stringify({ memberId, token });
+  sessionStorage.setItem(MEMBER_SESSION_KEY, value);
+  window.name = `${MEMBER_WINDOW_SESSION_PREFIX}${btoa(value)}`;
 }
 
 function clearPersistedMemberSession() {
@@ -41,11 +42,11 @@ function clearPersistedMemberSession() {
   if (window.name.startsWith(MEMBER_WINDOW_SESSION_PREFIX)) window.name = "";
 }
 
-function persistedMemberId() {
-  const storedMemberId = sessionStorage.getItem(MEMBER_SESSION_KEY);
-  if (storedMemberId) return storedMemberId;
-  return window.name.startsWith(MEMBER_WINDOW_SESSION_PREFIX) ? window.name.slice(MEMBER_WINDOW_SESSION_PREFIX.length) : "";
+function persistedMemberSession() {
+  const value = sessionStorage.getItem(MEMBER_SESSION_KEY) || (window.name.startsWith(MEMBER_WINDOW_SESSION_PREFIX) ? atob(window.name.slice(MEMBER_WINDOW_SESSION_PREFIX.length)) : "");
+  try { return JSON.parse(value); } catch { return null; }
 }
+function memberHeaders() { return state.memberToken ? { Authorization: `Bearer ${state.memberToken}` } : {}; }
 
 async function request(path, options = {}) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
@@ -622,7 +623,9 @@ function renderAdminVisualization(visualization, now) {
 
 function adminPhotoButton(url, label) {
   if (!url) return `<span class="record-photo-missing" aria-label="${escapeHtml(label)}文件缺失">照片缺失</span>`;
-  return `<button class="record-photo-preview" type="button" data-photo-url="${escapeHtml(url)}" data-photo-label="${escapeHtml(label)}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></button>`;
+  const token = state.adminToken || state.memberToken;
+  const secureUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+  return `<button class="record-photo-preview" type="button" data-photo-url="${escapeHtml(secureUrl)}" data-photo-label="${escapeHtml(label)}"><img src="${escapeHtml(secureUrl)}" alt="${escapeHtml(label)}" /></button>`;
 }
 
 function renderAdminRecordCalendar(records) {
@@ -775,10 +778,11 @@ function leaveMemberDashboard() {
 }
 
 async function restoreMemberSession() {
-  const memberId = persistedMemberId();
-  if (!memberId) return;
+  const persisted = persistedMemberSession();
+  if (!persisted?.memberId || !persisted.token) return;
+  state.memberToken = persisted.token;
   try {
-    const data = await request(`/api/members/${encodeURIComponent(memberId)}/dashboard`);
+    const data = await request(`/api/members/${encodeURIComponent(persisted.memberId)}/dashboard`, { headers: memberHeaders() });
     showMemberDashboard(data);
   } catch {
     state.memberId = null;
@@ -826,8 +830,9 @@ async function setupIdentity() {
         $("adminDashboard").classList.remove("hidden");
       } else {
         clearPersistedAdminSession();
+        state.memberToken = data.token;
         showMemberDashboard(data);
-        persistMemberSession(data.member.id);
+        persistMemberSession(data.member.id, data.token);
       }
     } catch (error) {
       $("identityError").textContent = `无法登录：${serviceErrorMessage(error)}`;
@@ -1014,17 +1019,19 @@ function openSheet(action) {
   state.photoData = null;
   const member = currentMember();
   $("sheetEyebrow").textContent = action === "start" ? "开始签到" : "结束签到";
-  $("sheetTitle").textContent = action === "start" ? "上传实训现场照片" : "上传结束实训照片";
+  $("sheetTitle").textContent = action === "start" ? "拍摄实训现场照片" : "拍摄结束实训照片";
   $("checkinContext").innerHTML = action === "start" ? `<strong>${member.name}</strong><span>${member.workshop} · 提交后以服务器时间为准</span>` : `<strong>${member.name}</strong><span>开始于 ${formatClock(state.active.start)} · ${$("timer").textContent}</span>`;
   $("photoTitle").textContent = action === "start" ? "拍摄或上传开始现场照片" : "拍摄或上传结束现场照片";
-  $("photoHint").textContent = "照片为本次签到的必填凭证，可重新选择";
+  $("photoHint").textContent = "仅支持现场拍摄，不可从相册选择";
   $("confirmCheckin").textContent = action === "start" ? "确认开始实训" : "确认结束实训";
-  $("photoInput").value = "";
+  $("cameraPreview").srcObject = null;
+  $("cameraPreview").classList.add("hidden");
   $("photoPreview").src = "";
   $("photoPreview").classList.add("hidden");
   $("photoError").textContent = "";
   $("checkinSheet").classList.remove("hidden");
-  $("photoInput").focus();
+  $("takePhoto").textContent = "打开相机";
+  $("takePhoto").focus();
 }
 
 function closeSheet() {
@@ -1034,37 +1041,27 @@ function closeSheet() {
   state.photoData = null;
 }
 
-async function handlePhoto(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith("image/")) { $("photoError").textContent = "请选择图片文件后再提交。"; return; }
+async function handlePhoto() {
   try {
-    const preview = await compressPhoto(file);
-    state.photoData = preview;
-    $("photoPreview").src = preview;
+    const video = $("cameraPreview");
+    if (!video.srcObject) {
+      video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      video.classList.remove("hidden");
+      $("takePhoto").textContent = "拍摄照片";
+      return;
+    }
+    const canvas = $("cameraCanvas");
+    const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    state.photoData = canvas.toDataURL("image/jpeg", 0.6);
+    $("photoPreview").src = state.photoData;
     $("photoPreview").classList.remove("hidden");
     $("photoError").textContent = "";
+    $("takePhoto").textContent = "重新拍摄";
   } catch {
-    $("photoError").textContent = "照片处理失败，请重新选择一张图片。";
+    $("photoError").textContent = "无法打开相机。请在浏览器中允许相机权限后重试。";
   }
-}
-
-function compressPhoto(file) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const source = URL.createObjectURL(file);
-    image.onload = () => {
-      const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(image.width * scale);
-      canvas.height = Math.round(image.height * scale);
-      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(source);
-      resolve(canvas.toDataURL("image/jpeg", 0.72));
-    };
-    image.onerror = () => { URL.revokeObjectURL(source); reject(new Error("image-load-failed")); };
-    image.src = source;
-  });
 }
 
 async function confirmCheckin() {
@@ -1077,7 +1074,7 @@ async function confirmCheckin() {
   button.textContent = "正在保存…";
   try {
     const path = state.action === "start" ? "/api/sessions/start" : `/api/sessions/${encodeURIComponent(state.active.id)}/end`;
-    const data = await request(path, { method: "POST", body: JSON.stringify({ memberId: state.memberId, photoData: state.photoData }) });
+    const data = await request(path, { method: "POST", headers: memberHeaders(), body: JSON.stringify({ memberId: state.memberId, photoData: state.photoData }) });
     state.active = data.active;
     state.records = data.records;
     state.statistics = data.statistics;
@@ -1100,7 +1097,7 @@ async function confirmCheckin() {
 $("switchMember").addEventListener("click", leaveMemberDashboard);
 $("closeSheet").addEventListener("click", closeSheet);
 $("sheetBackdrop").addEventListener("click", closeSheet);
-$("photoInput").addEventListener("change", handlePhoto);
+$("takePhoto").addEventListener("click", handlePhoto);
 $("confirmCheckin").addEventListener("click", confirmCheckin);
 $("calendarYear").addEventListener("change", (event) => { state.calendarDraftYear = Number(event.target.value); });
 $("calendarMonth").addEventListener("change", (event) => { state.calendarDraftMonth = Number(event.target.value); });

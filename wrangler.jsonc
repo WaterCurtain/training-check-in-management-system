@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "training-checkin-system",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-20",
+  "assets": { "directory": ".", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "training-checkin", "database_id": "44d5d4e4-8173-4a5b-86dc-70d17a1b0fa7" }]
+}
