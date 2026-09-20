@@ -97,7 +97,7 @@ export default {
     const url = new URL(request.url); const path = url.pathname;
     try {
       if (!path.startsWith("/api/")) {
-        const publicAssets = new Set(["/", "/index.html", "/app.js", "/styles.css", "/design-assets/training-system-ui-concept.png"]);
+        const publicAssets = new Set(["/", "/index.html", "/app.js", "/styles.css"]);
         return publicAssets.has(path) ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
       }
       if (path === "/api/health") return json({ ok: true });

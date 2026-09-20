@@ -1,5 +1,5 @@
 const { createServer } = require("node:http");
-const { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync, copyFileSync } = require("node:fs");
+const { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } = require("node:fs");
 const path = require("node:path");
 const { randomUUID, createHash } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
@@ -82,7 +82,6 @@ const seedMember = database.prepare("INSERT OR IGNORE INTO members (id, name, wo
 const updateSeedWorkshop = database.prepare("UPDATE members SET workshop = ? WHERE id = ? AND workshop = ?");
 [["炼钢维修车间", "zhangwei", "仪控维修一组"], ["精炼连铸维修车间", "liang", "电气维修二组"], ["轧钢维修车间", "wangyu", "自动化实训组"]].forEach((member) => updateSeedWorkshop.run(...member));
 
-const demoSourcePhoto = path.join(ROOT, "design-assets", "training-system-ui-concept.png");
 const seedDemoSession = database.prepare("INSERT OR IGNORE INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)");
 const demoMemberIds = ["demo-chenhao", "demo-sunli", "demo-zhouming", "demo-wuqian", "demo-liujun", "demo-gaoning"];
 const demoNow = new Date();
@@ -93,7 +92,6 @@ demoMemberIds.forEach((memberId, memberIndex) => {
     const endedAt = new Date(startedAt.getTime() + (75 + ((memberIndex * 23 + recordIndex * 17) % 105)) * 60 * 1000);
     const id = `demo-${demoNow.getFullYear()}-${demoNow.getMonth() + 1}-${memberId}-${recordIndex}`;
     const demoPhoto = path.join(PHOTO_DIR, `${id}.png`);
-    if (!existsSync(demoPhoto) && existsSync(demoSourcePhoto)) copyFileSync(demoSourcePhoto, demoPhoto);
     seedDemoSession.run(id, memberId, startedAt.toISOString(), endedAt.toISOString(), demoPhoto, demoPhoto, startedAt.toISOString());
   }
 });

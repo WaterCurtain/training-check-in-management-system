@@ -31,12 +31,6 @@ npm start
 
 启动后访问 [http://127.0.0.1:4173](http://127.0.0.1:4173)。首次启动会自动创建 `data/training.db` 和 `data/photos/`。
 
-### 测试
-
-```bash
-npm test
-```
-
 ## 初始测试账号
 
 | 角色 | 账号 | PIN |
@@ -79,7 +73,6 @@ npm test
 ├── server.js        # 本地 Node.js 服务与 SQLite 接口
 ├── worker.js        # Cloudflare Worker 与 D1 接口
 ├── schema.sql       # D1 数据库表结构
-├── test/            # Node.js 测试
 └── data/            # 本地 SQLite 数据库和照片（运行时生成）
 ```
 
