@@ -481,14 +481,12 @@ function renderAdminVisualization(visualization, now) {
   const chart = total ? renderLineChart(visibleDaily.map((item) => item.minutes), dailyDates.map(chartDateLabel), `${periodLabel}全员每日实训时长趋势图`, visibleDaily.map((item) => `${item.day}日`), 1.3, true) : '<p class="chart-empty admin-chart-empty">暂无可统计的实训记录。</p>';
   $("adminDailyChart").innerHTML = state.adminTrendRange === "month" && total ? `<div class="chart-scroll admin-trend-scroll" tabindex="0" aria-label="可左右浏览${state.adminOverviewMonth + 1}月全部日期">${chart}</div>` : chart;
   const ranking = safeVisualization.ranking || [];
-  const maxRank = Math.max(...ranking.map((item) => item.minutes), 1);
-  $("adminRankingChart").innerHTML = ranking.length ? `<div class="admin-chart-list-scroll"><div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><div><i style="--ranking-progress:${item.minutes / maxRank}"></i></div><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无排名数据。</p>';
+  $("adminRankingChart").innerHTML = ranking.length ? `<div class="admin-chart-list-scroll"><div class="ranking-list">${ranking.map((item, index) => `<div class="ranking-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><em>${formatMinutes(item.minutes)}</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无排名数据。</p>';
   const totalMembers = safeVisualization.reachedMembers + safeVisualization.remainingMembers;
   const reachedRatio = totalMembers ? safeVisualization.reachedMembers / totalMembers : 0;
   $("adminAttainmentChart").innerHTML = `<div class="attainment-ring-layout"><div class="attainment-ring" aria-label="已完成 ${safeVisualization.reachedMembers} 人，共 ${totalMembers} 人"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="attainment-ring-track" cx="60" cy="60" r="48" pathLength="100"/><circle class="attainment-ring-value" cx="60" cy="60" r="48" pathLength="100" stroke-dasharray="${reachedRatio * 100} 100"/></svg><strong>${safeVisualization.reachedMembers}<small> / ${totalMembers}人</small></strong></div><div class="attainment-summary"><p>已完成月度目标</p><small><i class="attainment-key reached"></i>达标 ${safeVisualization.reachedMembers} 人　<i class="attainment-key remaining"></i>未达标 ${safeVisualization.remainingMembers} 人</small></div></div>`;
   const frequency = safeVisualization.frequency || [];
-  const maxFrequency = Math.max(...frequency.map((item) => item.count), 1);
-  $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="admin-chart-list-scroll"><div class="frequency-list">${frequency.map((item) => `<div><span>${escapeHtml(item.name)}</span><i style="--frequency-progress:${item.count / maxFrequency}"></i><strong>${item.count} 次</strong></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无频率数据。</p>';
+  $("adminFrequencyChart").innerHTML = frequency.length ? `<div class="admin-chart-list-scroll"><div class="frequency-list">${frequency.map((item, index) => `<div class="frequency-row"><span>${index + 1}</span><strong>${escapeHtml(item.name)}</strong><em>${item.count} 次</em></div>`).join("")}</div></div>` : '<p class="admin-empty">暂无频率数据。</p>';
 }
 
 function adminPhotoButton(url, label) {
