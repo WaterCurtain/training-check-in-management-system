@@ -122,8 +122,8 @@ const statements = {
   approveSession: database.prepare("UPDATE sessions SET review_status = 'approved' WHERE id = ? AND status = 'completed' AND review_status = 'pending'"),
   manuallyRegisterSession: database.prepare("UPDATE sessions SET ended_at = ?, status = 'completed', review_status = 'approved' WHERE id = ? AND status = 'completed' AND review_status = 'pending'"),
   createAuditLog: database.prepare("INSERT INTO audit_logs (id, admin_id, action, record_type, record_id, before_data, after_data, reason, created_at) VALUES (?, ?, ?, 'session', ?, ?, ?, ?, ?)"),
-  auditLogs: database.prepare("SELECT * FROM audit_logs WHERE record_id = ? ORDER BY created_at DESC"),
-  allAuditLogs: database.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100"),
+  auditLogs: database.prepare("SELECT audit_logs.*, members.name AS member_name, members.workshop AS member_workshop FROM audit_logs LEFT JOIN sessions ON sessions.id = audit_logs.record_id LEFT JOIN members ON members.id = sessions.member_id WHERE audit_logs.record_id = ? ORDER BY audit_logs.created_at DESC"),
+  allAuditLogs: database.prepare("SELECT audit_logs.*, members.name AS member_name, members.workshop AS member_workshop FROM audit_logs LEFT JOIN sessions ON sessions.id = audit_logs.record_id LEFT JOIN members ON members.id = sessions.member_id ORDER BY audit_logs.created_at DESC"),
 };
 
 function sendJson(response, status, data) {
@@ -165,6 +165,7 @@ function reviewStatusForEnd(startedAt, endedAt) {
 }
 
 function auditSnapshot(session) {
+  const member = statements.memberAny.get(session.member_id);
   return {
     id: session.id,
     memberId: session.member_id,
@@ -175,7 +176,15 @@ function auditSnapshot(session) {
     status: session.status,
     reviewStatus: session.review_status,
     durationMinutes: Math.round(sessionDurationMinutes(session)),
+    memberName: member?.name || null,
+    workshop: member?.workshop || null,
   };
+}
+
+function serializeAuditLog(log) {
+  const beforeData = JSON.parse(log.before_data);
+  const afterData = JSON.parse(log.after_data);
+  return { id: log.id, adminId: log.admin_id, action: log.action, recordId: log.record_id, memberName: log.member_name || beforeData.memberName || "成员已删除", workshop: log.member_workshop || beforeData.workshop || "未设置车间", beforeData, afterData, reason: log.reason, createdAt: log.created_at };
 }
 
 function saveAuditLog(action, session, before, reason) {
@@ -454,7 +463,7 @@ async function handleApi(request, response, pathname) {
   }
   if (request.method === "GET" && pathname === "/api/admin/audit-logs") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
-    return sendJson(response, 200, { logs: statements.allAuditLogs.all().map((log) => ({ id: log.id, adminId: log.admin_id, action: log.action, recordId: log.record_id, beforeData: JSON.parse(log.before_data), afterData: JSON.parse(log.after_data), reason: log.reason, createdAt: log.created_at })) });
+    return sendJson(response, 200, { logs: statements.allAuditLogs.all().map(serializeAuditLog) });
   }
   const abnormalSessionMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/void$/.exec(pathname);
   const abnormalCompleteMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/complete$/.exec(pathname);
@@ -537,7 +546,7 @@ async function handleApi(request, response, pathname) {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     const session = statements.sessionById.get(decodeURIComponent(abnormalAuditMatch[1]));
     if (!session) return sendError(response, 404, "实训记录不存在。");
-    return sendJson(response, 200, { logs: statements.auditLogs.all(session.id).map((log) => ({ id: log.id, adminId: log.admin_id, action: log.action, recordId: log.record_id, beforeData: JSON.parse(log.before_data), afterData: JSON.parse(log.after_data), reason: log.reason, createdAt: log.created_at })) });
+    return sendJson(response, 200, { logs: statements.auditLogs.all(session.id).map(serializeAuditLog) });
   }
   if (request.method === "GET" && pathname === "/api/admin/members") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");

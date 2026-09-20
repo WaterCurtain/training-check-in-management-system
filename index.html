@@ -225,11 +225,15 @@
           </header>
           <section class="admin-section" aria-labelledby="abnormalRecordsTitle">
             <div class="admin-section-heading"><div><h2 id="abnormalRecordsTitle">待处理异常</h2><p id="abnormalRecordSummary">加载中</p></div></div>
+            <div class="admin-list-filters"><label><span>开始日期</span><input id="abnormalDateFilter" type="date" /></label><button class="text-button" id="clearAbnormalDateFilter" type="button">清除筛选</button></div>
             <div class="abnormal-records" id="abnormalRecords"></div>
+            <div class="admin-record-pagination" id="abnormalRecordPagination"></div>
           </section>
           <section class="admin-section" aria-labelledby="auditLogsTitle">
             <div class="admin-section-heading"><div><h2 id="auditLogsTitle">修改审计日志</h2><p>保留修改前后数据、操作人、时间和原因。</p></div></div>
+            <div class="admin-list-filters admin-audit-filters"><label><span>操作日期</span><input id="auditDateFilter" type="date" /></label><label><span>处理分类</span><select id="auditActionFilter"><option value="">全部分类</option></select></label><label class="admin-audit-search"><span>成员或车间</span><input id="auditQuery" type="search" placeholder="搜索姓名或车间" /></label><button class="text-button" id="clearAuditFilters" type="button">清除筛选</button></div>
             <div class="audit-logs" id="auditLogs"></div>
+            <div class="admin-record-pagination" id="auditLogPagination"></div>
           </section>
         </main>
         <main class="admin-main hidden" id="memberManagement">

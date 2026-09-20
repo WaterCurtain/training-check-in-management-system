@@ -185,6 +185,8 @@ test("管理员可闭环处理异常记录并保留审计日志", async (context
   const completionLog = logs.find((log) => log.recordId === longOpenId);
   const voidLog = logs.find((log) => log.recordId === shortId);
   assert.equal(completionLog.adminId, "Admin");
+  assert.equal(completionLog.memberName, `异常测试成员${suffix}`);
+  assert.equal(completionLog.workshop, "测试车间");
   assert.equal(completionLog.action, "补录结束时间");
   assert.equal(completionLog.beforeData.status, "training");
   assert.equal(completionLog.afterData.status, "completed");

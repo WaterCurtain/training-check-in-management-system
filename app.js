@@ -1,6 +1,7 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false, abnormalDateFilter: "", abnormalPage: 1, auditDateFilter: "", auditActionFilter: "", auditQuery: "", auditPage: 1 };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
+const ADMIN_LISTS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
 
 async function request(path, options = {}) {
@@ -244,15 +245,38 @@ function dateTimeLocalValue(date) {
 }
 
 function renderAbnormalRecords() {
-  const records = state.abnormalRecords;
-  $("abnormalRecordSummary").textContent = records.length ? `当前共 ${records.length} 条待处理异常记录。` : "暂无待处理异常记录。";
-  $("abnormalRecords").innerHTML = records.length ? records.map((record) => {
+  const records = state.abnormalRecords.filter((record) => !state.abnormalDateFilter || inputDate(record.start) === state.abnormalDateFilter);
+  const abnormalPages = Math.max(1, Math.ceil(records.length / ADMIN_LISTS_PER_PAGE));
+  state.abnormalPage = Math.min(state.abnormalPage, abnormalPages);
+  const visibleRecords = records.slice((state.abnormalPage - 1) * ADMIN_LISTS_PER_PAGE, state.abnormalPage * ADMIN_LISTS_PER_PAGE);
+  $("abnormalDateFilter").value = state.abnormalDateFilter;
+  $("abnormalRecordSummary").textContent = records.length ? `当前条件下共 ${records.length} 条待处理异常记录。` : "当前条件下暂无待处理异常记录。";
+  $("abnormalRecords").innerHTML = visibleRecords.length ? visibleRecords.map((record) => {
     const timeText = record.end ? `${formatDateTime(record.start)} 至 ${formatDateTime(record.end)}` : `${formatDateTime(record.start)} 开始，尚未结束`;
     const canComplete = record.status === "training";
     const needsReview = record.reviewStatus === "pending";
     return `<article class="abnormal-record"><div><div class="abnormal-record-title"><strong>${escapeHtml(record.memberName || "已删除成员")}</strong><span>${escapeHtml(record.workshop || "")}</span>${record.anomalyTypes.map((type) => `<i>${escapeHtml(type)}</i>`).join("")}</div><p>${timeText} · ${formatMinutes(record.durationMinutes)}${needsReview ? " · 等待管理员审核" : ""}</p></div><div class="abnormal-record-actions">${canComplete ? `<button class="text-button complete-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">补录结束时间</button>` : ""}${needsReview ? `<button class="text-button review-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">审核时长</button>` : ""}<button class="text-button void-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">作废记录</button></div></article>`;
   }).join("") : '<p class="admin-empty">系统会持续检查异常签到；处理完成的记录将不再出现在此列表。</p>';
-  $("auditLogs").innerHTML = state.auditLogs.length ? state.auditLogs.map((log) => `<article class="audit-log"><header><strong>${escapeHtml(log.action)}</strong><span>${escapeHtml(log.adminId)} · ${formatDateTime(log.createdAt)}</span></header><p>记录 ${escapeHtml(log.recordId)} · 原因：${escapeHtml(log.reason)}</p><div><span>修改前：${escapeHtml(log.beforeData.end ? formatDateTime(log.beforeData.end) : "未结束")}（${escapeHtml(log.beforeData.status)} · ${formatMinutes(log.beforeData.durationMinutes)}）</span><span>修改后：${escapeHtml(log.afterData.end ? formatDateTime(log.afterData.end) : "未结束")}（${escapeHtml(log.afterData.status)} · ${formatMinutes(log.afterData.durationMinutes)}）</span></div></article>`).join("") : '<p class="admin-empty">尚无管理员修改记录。</p>';
+  $("abnormalRecordPagination").innerHTML = renderListPagination("abnormal", state.abnormalPage, abnormalPages, records.length);
+
+  const actions = [...new Set(state.auditLogs.map((log) => log.action))];
+  $("auditActionFilter").innerHTML = `<option value="">全部分类</option>${actions.map((action) => `<option value="${escapeHtml(action)}">${escapeHtml(action)}</option>`).join("")}`;
+  $("auditDateFilter").value = state.auditDateFilter;
+  $("auditActionFilter").value = state.auditActionFilter;
+  $("auditQuery").value = state.auditQuery;
+  const query = state.auditQuery.trim().toLocaleLowerCase("zh-CN");
+  const logs = state.auditLogs.filter((log) => (!state.auditDateFilter || inputDate(log.createdAt) === state.auditDateFilter) && (!state.auditActionFilter || log.action === state.auditActionFilter) && (!query || `${log.memberName} ${log.workshop}`.toLocaleLowerCase("zh-CN").includes(query)));
+  const auditPages = Math.max(1, Math.ceil(logs.length / ADMIN_LISTS_PER_PAGE));
+  state.auditPage = Math.min(state.auditPage, auditPages);
+  const visibleLogs = logs.slice((state.auditPage - 1) * ADMIN_LISTS_PER_PAGE, state.auditPage * ADMIN_LISTS_PER_PAGE);
+  $("auditLogs").innerHTML = visibleLogs.length ? visibleLogs.map((log) => `<article class="audit-log"><header><div><strong>${escapeHtml(log.action)}</strong><span>${escapeHtml(log.memberName)} · ${escapeHtml(log.workshop)}</span></div><span>${escapeHtml(log.adminId)} · ${formatDateTime(log.createdAt)}</span></header><p>原因：${escapeHtml(log.reason)}</p><div><span>修改前：${escapeHtml(log.beforeData.end ? formatDateTime(log.beforeData.end) : "未结束")}（${formatMinutes(log.beforeData.durationMinutes)}）</span><span>修改后：${escapeHtml(log.afterData.end ? formatDateTime(log.afterData.end) : "未结束")}（${formatMinutes(log.afterData.durationMinutes)}）</span></div></article>`).join("") : '<p class="admin-empty">当前筛选条件下暂无审计日志。</p>';
+  $("auditLogPagination").innerHTML = renderListPagination("audit", state.auditPage, auditPages, logs.length);
+}
+
+function renderListPagination(prefix, page, pages, total) {
+  if (!total || pages === 1) return total ? `<span>共 ${total} 条</span>` : "";
+  const inputId = `${prefix}PageInput`;
+  return `<span>共 ${total} 条 · 第 ${page} / ${pages} 页</span><div><label class="pagination-jump">跳至 <input id="${inputId}" type="number" min="1" max="${pages}" value="${page}" inputmode="numeric" aria-label="跳转到第几页" /> 页</label><button class="text-button pagination-jump-button" data-${prefix}-page-jump="${pages}" type="button">跳转</button><button class="text-button" data-${prefix}-page="${page - 1}" type="button" ${page === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-${prefix}-page="${page + 1}" type="button" ${page === pages ? "disabled" : ""}>下一页</button></div>`;
 }
 
 async function showAbnormalRecords() {
@@ -613,11 +637,26 @@ function closePhotoLightbox() {
 async function leaveAdminDashboard() {
   const token = state.adminToken;
   state.adminToken = null;
+  sessionStorage.removeItem("adminToken");
   $("adminDashboard").classList.add("hidden");
   $("identityView").classList.remove("hidden");
   $("pinInput").value = "";
   $("pinInput").focus();
   if (token) await request("/api/admin/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+}
+
+async function restoreAdminSession() {
+  const token = sessionStorage.getItem("adminToken");
+  if (!token) return;
+  state.adminToken = token;
+  try {
+    await loadAdminDashboard();
+    $("identityView").classList.add("hidden");
+    $("adminDashboard").classList.remove("hidden");
+  } catch {
+    state.adminToken = null;
+    sessionStorage.removeItem("adminToken");
+  }
 }
 
 async function setupIdentity() {
@@ -626,6 +665,7 @@ async function setupIdentity() {
   } catch (error) {
     $("identityError").textContent = serviceErrorMessage(error);
   }
+  await restoreAdminSession();
   $("identityForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const pin = $("pinInput").value.trim();
@@ -638,6 +678,7 @@ async function setupIdentity() {
       if (data.role === "admin") {
         state.adminToken = data.token;
         await loadAdminDashboard();
+        sessionStorage.setItem("adminToken", data.token);
         $("identityView").classList.add("hidden");
         $("adminDashboard").classList.remove("hidden");
       } else {
@@ -1013,6 +1054,32 @@ $("abnormalRecords").addEventListener("click", (event) => {
   if (!button) return;
   openAbnormalAction(button.dataset.recordId, button.classList.contains("complete-abnormal-record") ? "complete" : button.classList.contains("review-abnormal-record") ? "review" : "void");
 });
+$("abnormalDateFilter").addEventListener("change", (event) => { state.abnormalDateFilter = event.target.value; state.abnormalPage = 1; renderAbnormalRecords(); });
+$("clearAbnormalDateFilter").addEventListener("click", () => { state.abnormalDateFilter = ""; state.abnormalPage = 1; renderAbnormalRecords(); });
+$("auditDateFilter").addEventListener("change", (event) => { state.auditDateFilter = event.target.value; state.auditPage = 1; renderAbnormalRecords(); });
+$("auditActionFilter").addEventListener("change", (event) => { state.auditActionFilter = event.target.value; state.auditPage = 1; renderAbnormalRecords(); });
+$("auditQuery").addEventListener("input", (event) => { state.auditQuery = event.target.value; state.auditPage = 1; renderAbnormalRecords(); });
+$("clearAuditFilters").addEventListener("click", () => { state.auditDateFilter = ""; state.auditActionFilter = ""; state.auditQuery = ""; state.auditPage = 1; renderAbnormalRecords(); });
+$("abnormalRecordPagination").addEventListener("click", (event) => {
+  const jump = event.target.closest("button[data-abnormal-page-jump]");
+  const pages = Number(jump?.dataset.abnormalPageJump || 0);
+  const page = jump ? Number($("abnormalPageInput")?.value) : Number(event.target.closest("button[data-abnormal-page]")?.dataset.abnormalPage);
+  if (!Number.isInteger(page) || page < 1 || page > pages && jump) return showToast(`请输入 1 至 ${pages} 的页码。`);
+  if (!jump && (!page || event.target.closest("button[data-abnormal-page]")?.disabled)) return;
+  state.abnormalPage = page;
+  renderAbnormalRecords();
+});
+$("auditLogPagination").addEventListener("click", (event) => {
+  const jump = event.target.closest("button[data-audit-page-jump]");
+  const pages = Number(jump?.dataset.auditPageJump || 0);
+  const page = jump ? Number($("auditPageInput")?.value) : Number(event.target.closest("button[data-audit-page]")?.dataset.auditPage);
+  if (!Number.isInteger(page) || page < 1 || page > pages && jump) return showToast(`请输入 1 至 ${pages} 的页码。`);
+  if (!jump && (!page || event.target.closest("button[data-audit-page]")?.disabled)) return;
+  state.auditPage = page;
+  renderAbnormalRecords();
+});
+$("abnormalRecordPagination").addEventListener("keydown", (event) => { if (event.key === "Enter" && event.target.id === "abnormalPageInput") { event.preventDefault(); event.currentTarget.querySelector("button[data-abnormal-page-jump]")?.click(); } });
+$("auditLogPagination").addEventListener("keydown", (event) => { if (event.key === "Enter" && event.target.id === "auditPageInput") { event.preventDefault(); event.currentTarget.querySelector("button[data-audit-page-jump]")?.click(); } });
 $("adminOverviewRecordPagination").addEventListener("click", (event) => {
   const jumpButton = event.target.closest("button[data-admin-overview-page-jump]");
   if (jumpButton && state.adminDashboardData) {
