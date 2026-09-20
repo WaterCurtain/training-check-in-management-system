@@ -621,6 +621,7 @@ function renderAdminVisualization(visualization, now) {
 }
 
 function adminPhotoButton(url, label) {
+  if (!url) return `<span class="record-photo-missing" aria-label="${escapeHtml(label)}文件缺失">照片缺失</span>`;
   return `<button class="record-photo-preview" type="button" data-photo-url="${escapeHtml(url)}" data-photo-label="${escapeHtml(label)}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" /></button>`;
 }
 

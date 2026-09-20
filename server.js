@@ -146,12 +146,14 @@ function sendDownload(response, filename, contentType, content) {
 }
 
 function photoUrl(filePath) {
-  return `/uploads/${path.basename(filePath)}`;
+  if (!filePath) return null;
+  const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
+  return existsSync(absolutePath) ? `/uploads/${path.basename(filePath)}` : null;
 }
 
 function serializeSession(session) {
   if (!session) return null;
-  return { id: session.id, memberId: session.member_id, start: session.started_at, end: session.ended_at, startPhoto: photoUrl(session.start_photo_path), endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null, status: session.status, reviewStatus: session.review_status };
+  return { id: session.id, memberId: session.member_id, start: session.started_at, end: session.ended_at, startPhoto: photoUrl(session.start_photo_path), endPhoto: photoUrl(session.end_photo_path), status: session.status, reviewStatus: session.review_status };
 }
 
 function sessionDurationMinutes(session, now = new Date()) {

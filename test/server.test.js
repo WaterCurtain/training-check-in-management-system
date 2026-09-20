@@ -42,6 +42,29 @@ test("实训记录使用 SQLite 保存并关联本地照片", async (context) =>
   assert.equal(storedPhoto.headers.get("content-type"), "image/png");
 });
 
+test("缺失的历史照片会以空照片地址返回", async (context) => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const memberId = `missing-photo-member-${suffix}`;
+  const sessionId = `missing-photo-session-${suffix}`;
+  const now = new Date().toISOString();
+  database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)").run(memberId, `缺图测试成员${suffix}`, "测试车间");
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(sessionId, memberId, new Date(Date.now() - 60 * 60 * 1000).toISOString(), now, "data/photos/does-not-exist-start.png", "data/photos/does-not-exist-end.png", now);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  context.after(() => {
+    server.close();
+    database.prepare("DELETE FROM sessions WHERE member_id = ?").run(memberId);
+    database.prepare("DELETE FROM members WHERE id = ?").run(memberId);
+  });
+
+  const dashboard = await fetch(`${baseUrl}/api/members/${memberId}/dashboard`);
+  assert.equal(dashboard.status, 200);
+  const record = (await dashboard.json()).records.find((item) => item.id === sessionId);
+  assert.equal(record.startPhoto, null);
+  assert.equal(record.endPhoto, null);
+});
+
 test("管理员需要认证后才能读取训练总览", async (context) => {
   let createdMemberId;
   server.listen(0, "127.0.0.1");
