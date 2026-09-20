@@ -23,6 +23,24 @@ function formatMinutes(minutes) {
   return mins ? `${hours}小时${mins}分钟` : `${hours}小时`;
 }
 
+function formatAverageDailyComparison(current, previous) {
+  const difference = current - previous;
+  if (difference === 0) return "较上月持平";
+  if (previous === 0) return `较上月新增 ${formatMinutes(current)}`;
+  const direction = difference > 0 ? "增加" : "减少";
+  const percentage = Math.round((Math.abs(difference) / previous) * 100);
+  return `较上月${direction} ${formatMinutes(Math.abs(difference))}（${percentage}%）`;
+}
+
+function formatGoalMembersComparison(current, previous) {
+  const difference = current - previous;
+  if (difference === 0) return "较上月持平";
+  if (previous === 0) return `较上月新增 ${current} 人`;
+  const direction = difference > 0 ? "增加" : "减少";
+  const percentage = Math.round((Math.abs(difference) / previous) * 100);
+  return `较上月${direction} ${Math.abs(difference)} 人（${percentage}%）`;
+}
+
 function formatRemainingMinutes(minutes) {
   return minutes <= 0 ? "0小时" : formatMinutes(minutes);
 }
@@ -438,6 +456,8 @@ function renderAdminDashboard(data) {
   $("adminDate").textContent = formatDate(data.now);
   $("adminMonthMinutes").textContent = formatMinutes(data.summary.averageDailyMinutes);
   $("adminGoalMembers").textContent = `${data.summary.goalReachedMembers} 人`;
+  $("adminMonthMinutesComparison").textContent = formatAverageDailyComparison(data.summary.averageDailyMinutes, data.previousSummary.averageDailyMinutes);
+  $("adminGoalMembersComparison").textContent = formatGoalMembersComparison(data.summary.goalReachedMembers, data.previousSummary.goalReachedMembers);
   $("adminActiveMembers").textContent = `${data.summary.activeMembers} 人`;
   $("adminCompletedSessions").textContent = `${data.summary.completedSessions} 次`;
   $("adminVisualsTitle").textContent = `${periodLabel}训练数据`;
@@ -449,12 +469,15 @@ function renderAdminDashboard(data) {
   $("adminOverviewMonthFilter").innerHTML = Array.from({ length: 12 }, (_, month) => `<option value="${month}">${month + 1}月</option>`).join("");
   $("adminOverviewYearFilter").value = state.adminOverviewDraftYear ?? data.selectedYear;
   $("adminOverviewMonthFilter").value = state.adminOverviewDraftMonth ?? data.selectedMonth;
-  $("adminMemberRows").innerHTML = data.members.map((member) => {
+  $("adminMemberRows").innerHTML = [...data.members].sort((left, right) => {
+    const progressDifference = right.monthMinutes / right.goalMinutes - left.monthMinutes / left.goalMinutes;
+    return progressDifference || right.monthMinutes - left.monthMinutes || left.name.localeCompare(right.name, "zh-CN");
+  }).map((member) => {
     const ratio = Math.min(member.monthMinutes / member.goalMinutes, 1);
     const progressPercent = Math.min(100, Math.round(member.monthMinutes / member.goalMinutes * 100));
     const status = member.active ? "实训中" : member.monthMinutes >= member.goalMinutes ? "已达标" : "未达标";
     const statusClass = member.active ? "admin-status-active" : member.monthMinutes >= member.goalMinutes ? "admin-status-complete" : "admin-status-pending";
-    return `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${progressPercent}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td><td><button class="text-button admin-member-records" data-member-id="${escapeHtml(member.id)}" type="button">查看记录</button></td></tr>`;
+    return `<tr data-member-search="${escapeHtml(`${member.name} ${member.workshop}`.toLocaleLowerCase("zh-CN"))}"><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td>${formatMinutes(member.monthMinutes)} · ${member.monthCount} 次</td><td><div class="admin-progress"><span style="--admin-progress:${ratio}"></span></div><small>${progressPercent}%</small></td><td><span class="admin-status ${statusClass}">${status}</span></td><td><button class="text-button admin-member-records" data-member-id="${escapeHtml(member.id)}" type="button">查看记录</button></td></tr>`;
   }).join("");
   renderAdminVisualization(data.visualization, data.now);
   state.adminOverviewRecords = data.recentRecords;
@@ -463,7 +486,7 @@ function renderAdminDashboard(data) {
   const start = (state.adminOverviewRecordPage - 1) * ADMIN_RECORDS_PER_PAGE;
   const pageRecords = data.recentRecords.slice(start, start + ADMIN_RECORDS_PER_PAGE);
   $("adminRecords").innerHTML = pageRecords.length ? pageRecords.map((record) => `<article class="admin-record"><div><strong>${escapeHtml(record.memberName)} <span class="admin-record-workshop">${escapeHtml(record.workshop || "未设置车间")}</span></strong><p>${formatDate(record.start)} · ${formatClock(record.start)} 至 ${formatClock(record.end)} · ${formatMinutes((new Date(record.end) - new Date(record.start)) / 60000)}</p></div><div class="admin-record-photos">${adminPhotoButton(record.startPhoto, `${record.memberName}的开始现场照片`)}${adminPhotoButton(record.endPhoto, `${record.memberName}的结束现场照片`)}</div></article>`).join("") : '<p class="admin-empty">暂无已完成的实训记录。成员完成一次开始和结束签到后，记录会显示在这里。</p>';
-  $("adminOverviewRecordPagination").innerHTML = data.recentRecords.length > ADMIN_RECORDS_PER_PAGE ? `<span>第 ${state.adminOverviewRecordPage} / ${pages} 页</span><div><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage - 1}" type="button" ${state.adminOverviewRecordPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage + 1}" type="button" ${state.adminOverviewRecordPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
+  $("adminOverviewRecordPagination").innerHTML = data.recentRecords.length > ADMIN_RECORDS_PER_PAGE ? `<span>第 ${state.adminOverviewRecordPage} / ${pages} 页</span><div><label class="pagination-jump">跳至 <input id="adminOverviewRecordPageInput" type="number" min="1" max="${pages}" value="${state.adminOverviewRecordPage}" inputmode="numeric" data-admin-overview-page-input aria-label="跳转到第几页" /> 页</label><button class="text-button pagination-jump-button" data-admin-overview-page-jump="${pages}" type="button">跳转</button><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage - 1}" type="button" ${state.adminOverviewRecordPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" data-admin-overview-page="${state.adminOverviewRecordPage + 1}" type="button" ${state.adminOverviewRecordPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function openPhotoLightbox(url, label) {
@@ -681,7 +704,7 @@ function renderRecords() {
     const day = `${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
     return `<article class="record-item"><span class="record-date">${day}</span><div class="record-main"><strong>本次实训记录</strong><p>${formatClock(start)} 开始 · ${formatClock(end)} 结束</p></div><div class="record-times"><span>${formatMinutes((end - start) / 60000)}</span><span class="record-status">正常</span></div><div class="record-media">${adminPhotoButton(record.startPhoto, "开始现场照片")}${adminPhotoButton(record.endPhoto, "结束现场照片")}</div></article>`;
   }).join("") : `<p class="empty-records">${state.selectedCalendarYear}年${state.selectedCalendarMonth + 1}月暂无已完成的实训记录。</p>`;
-  $("memberRecordPagination").innerHTML = recordsInSelectedMonth.length > MEMBER_RECORDS_PER_PAGE ? `<span>第 ${state.historyPage} / ${pages} 页</span><div><button class="text-button" type="button" data-member-record-page="${state.historyPage - 1}" ${state.historyPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" type="button" data-member-record-page="${state.historyPage + 1}" ${state.historyPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
+  $("memberRecordPagination").innerHTML = recordsInSelectedMonth.length > MEMBER_RECORDS_PER_PAGE ? `<span>第 ${state.historyPage} / ${pages} 页</span><div><label class="pagination-jump">跳至 <input id="memberRecordPageInput" type="number" min="1" max="${pages}" value="${state.historyPage}" inputmode="numeric" data-member-record-page-input aria-label="跳转到第几页" /> 页</label><button class="text-button pagination-jump-button" data-member-record-page-jump="${pages}" type="button">跳转</button><button class="text-button" type="button" data-member-record-page="${state.historyPage - 1}" ${state.historyPage === 1 ? "disabled" : ""}>上一页</button><button class="text-button" type="button" data-member-record-page="${state.historyPage + 1}" ${state.historyPage === pages ? "disabled" : ""}>下一页</button></div>` : "";
 }
 
 function openSheet(action) {
@@ -788,7 +811,25 @@ $("applyCalendarMonth").addEventListener("click", () => {
   renderCalendar();
   renderRecords();
 });
-$("memberRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-member-record-page]"); if (!button || button.disabled) return; state.historyPage = Number(button.dataset.memberRecordPage); renderRecords(); });
+$("memberRecordPagination").addEventListener("click", (event) => {
+  const jumpButton = event.target.closest("button[data-member-record-page-jump]");
+  if (jumpButton) {
+    const page = Number($("memberRecordPageInput")?.value);
+    const pages = Number(jumpButton.dataset.memberRecordPageJump);
+    if (!Number.isInteger(page) || page < 1 || page > pages) return showToast(`请输入 1 至 ${pages} 的页码。`);
+    state.historyPage = page;
+    return renderRecords();
+  }
+  const button = event.target.closest("button[data-member-record-page]");
+  if (!button || button.disabled) return;
+  state.historyPage = Number(button.dataset.memberRecordPage);
+  renderRecords();
+});
+$("memberRecordPagination").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches("[data-member-record-page-input]")) return;
+  event.preventDefault();
+  $("memberRecordPagination").querySelector("button[data-member-record-page-jump]")?.click();
+});
 $("trainingCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-calendar-date]"); if (!day || day.disabled) return; state.selectedCalendarDate = day.dataset.calendarDate; renderCalendar(); });
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
 $("memberLogout").addEventListener("click", leaveAdminDashboard);
@@ -814,6 +855,18 @@ $("adminMemberRows").addEventListener("click", (event) => {
   const memberId = event.target.dataset.memberId;
   if (memberId && event.target.classList.contains("admin-member-records")) showAdminRecords(memberId);
 });
+$("adminMemberSearchForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = $("adminMemberQuery").value.trim().toLocaleLowerCase("zh-CN");
+  const rows = [...$("adminMemberRows").rows];
+  rows.forEach((row) => row.classList.remove("is-located"));
+  if (!query) return showToast("请输入姓名或车间名称。");
+  const row = rows.find((item) => item.dataset.memberSearch.includes(query));
+  if (!row) return showToast("未找到匹配的成员。");
+  row.classList.add("is-located");
+  const tableWrap = $("adminMemberTableWrap");
+  tableWrap.scrollTo({ top: Math.max(0, row.offsetTop - (tableWrap.clientHeight - row.offsetHeight) / 2), behavior: "smooth" });
+});
 $("adminRecordMemberFilter").addEventListener("change", (event) => { state.adminRecordDraftMemberId = event.target.value; });
 $("adminRecordYearFilter").addEventListener("change", (event) => { state.adminRecordDraftYear = Number(event.target.value); });
 $("adminRecordMonthFilter").addEventListener("change", (event) => { state.adminRecordDraftMonth = Number(event.target.value); });
@@ -827,7 +880,25 @@ $("applyAdminRecordFilters").addEventListener("click", () => {
 });
 $("clearAdminRecordFilters").addEventListener("click", () => { const now = new Date(); state.adminRecordMemberId = ""; state.adminRecordDraftMemberId = ""; state.adminRecordYear = now.getFullYear(); state.adminRecordMonth = now.getMonth(); state.adminRecordDraftYear = state.adminRecordYear; state.adminRecordDraftMonth = state.adminRecordMonth; state.adminCalendarDate = ""; loadAdminRecords(); });
 $("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; renderAdminRecords(); });
-$("adminOverviewRecordPagination").addEventListener("click", (event) => { const button = event.target.closest("button[data-admin-overview-page]"); if (!button || button.disabled || !state.adminDashboardData) return; state.adminOverviewRecordPage = Number(button.dataset.adminOverviewPage); renderAdminDashboard(state.adminDashboardData); });
+$("adminOverviewRecordPagination").addEventListener("click", (event) => {
+  const jumpButton = event.target.closest("button[data-admin-overview-page-jump]");
+  if (jumpButton && state.adminDashboardData) {
+    const page = Number($("adminOverviewRecordPageInput")?.value);
+    const pages = Number(jumpButton.dataset.adminOverviewPageJump);
+    if (!Number.isInteger(page) || page < 1 || page > pages) return showToast(`请输入 1 至 ${pages} 的页码。`);
+    state.adminOverviewRecordPage = page;
+    return renderAdminDashboard(state.adminDashboardData);
+  }
+  const button = event.target.closest("button[data-admin-overview-page]");
+  if (!button || button.disabled || !state.adminDashboardData) return;
+  state.adminOverviewRecordPage = Number(button.dataset.adminOverviewPage);
+  renderAdminDashboard(state.adminDashboardData);
+});
+$("adminOverviewRecordPagination").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches("[data-admin-overview-page-input]")) return;
+  event.preventDefault();
+  $("adminOverviewRecordPagination").querySelector("button[data-admin-overview-page-jump]")?.click();
+});
 function showChartTooltip(item) {
   const tooltip = $("chartTooltip");
   const rect = item.getBoundingClientRect();
@@ -849,24 +920,25 @@ document.addEventListener("focusout", (event) => { if (event.target.closest(".ch
 let chartScrollDrag = null;
 function clearChartScrollDrag(event) {
   if (!chartScrollDrag || (event?.pointerId !== undefined && event.pointerId !== chartScrollDrag.pointerId)) return;
-  const { scroller, pointerId } = chartScrollDrag;
+  const { scroller } = chartScrollDrag;
   chartScrollDrag = null;
-  if (scroller.hasPointerCapture?.(pointerId)) scroller.releasePointerCapture(pointerId);
+  scroller.classList.remove("is-dragging");
+  document.body.classList.remove("is-chart-dragging");
 }
 document.addEventListener("pointerdown", (event) => {
-  const scroller = event.target.closest(".chart-scroll");
+  const scroller = event.target.closest(".admin-trend-scroll");
   if (!scroller || event.pointerType !== "mouse" || event.button !== 0 || scroller.scrollWidth <= scroller.clientWidth) return;
   chartScrollDrag = { scroller, pointerId: event.pointerId, startX: event.clientX, scrollLeft: scroller.scrollLeft, dragging: false };
-  scroller.setPointerCapture?.(event.pointerId);
 });
 document.addEventListener("pointermove", (event) => {
   if (!chartScrollDrag || event.pointerId !== chartScrollDrag.pointerId) return;
   const distance = event.clientX - chartScrollDrag.startX;
   if (!chartScrollDrag.dragging && Math.abs(distance) < 5) return;
   chartScrollDrag.dragging = true;
+  chartScrollDrag.scroller.classList.add("is-dragging");
+  document.body.classList.add("is-chart-dragging");
   chartScrollDrag.scroller.scrollLeft = chartScrollDrag.scrollLeft - distance;
-  if (event.cancelable) event.preventDefault();
-}, { passive: false });
+});
 document.addEventListener("pointerup", clearChartScrollDrag);
 document.addEventListener("pointercancel", clearChartScrollDrag);
 document.addEventListener("lostpointercapture", clearChartScrollDrag);

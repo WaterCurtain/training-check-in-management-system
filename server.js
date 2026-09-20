@@ -185,6 +185,17 @@ function adminOverview(year, month) {
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
   const elapsedDays = isCurrentPeriod ? Math.max(1, now.getDate()) : new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const averageDailyMinutes = members.length ? Math.round(monthMinutes / members.length / elapsedDays) : 0;
+  const previousMonthStart = new Date(selectedYear, selectedMonth - 1, 1);
+  const previousMonthEnd = monthStart;
+  const previousMonthDays = new Date(selectedYear, selectedMonth, 0).getDate();
+  const previousMemberStats = members.map((member) => ({
+    minutes: sessions
+      .filter((session) => session.member_id === member.id)
+      .reduce((total, session) => total + minutesInRange(session, previousMonthStart, previousMonthEnd, now), 0),
+  }));
+  const previousMonthMinutes = previousMemberStats.reduce((total, member) => total + member.minutes, 0);
+  const previousAverageDailyMinutes = members.length ? Math.round(previousMonthMinutes / members.length / previousMonthDays) : 0;
+  const previousGoalReachedMembers = previousMemberStats.filter((member) => member.minutes >= goalMinutes).length;
   const memberInfo = new Map(allMembers.map((member) => [member.id, member]));
   const daily = [];
   const rangeEnd = isCurrentPeriod ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) : nextMonth;
@@ -205,6 +216,10 @@ function adminOverview(year, month) {
       goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
       activeMembers: memberStats.filter((member) => member.active).length,
       completedSessions: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length,
+    },
+    previousSummary: {
+      averageDailyMinutes: previousAverageDailyMinutes,
+      goalReachedMembers: previousGoalReachedMembers,
     },
     members: memberStats,
     recentRecords: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),

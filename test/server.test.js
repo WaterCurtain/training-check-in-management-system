@@ -70,6 +70,8 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   const data = await overview.json();
   assert.ok(data.members.length >= 1);
   assert.equal(typeof data.summary.monthMinutes, "number");
+  assert.equal(typeof data.previousSummary.averageDailyMinutes, "number");
+  assert.equal(typeof data.previousSummary.goalReachedMembers, "number");
   assert.ok(Array.isArray(data.visualization.daily));
   assert.ok(Array.isArray(data.visualization.ranking));
 
