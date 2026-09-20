@@ -2,7 +2,50 @@ const state = { memberId: null, members: [], action: null, photoData: null, acti
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
 const ADMIN_LISTS_PER_PAGE = 10;
+const ADMIN_SESSION_KEY = "training-checkin-admin-token";
+const ADMIN_WINDOW_SESSION_PREFIX = "training-checkin-admin:";
+const MEMBER_SESSION_KEY = "training-checkin-member-id";
+const MEMBER_WINDOW_SESSION_PREFIX = "training-checkin-member:";
 const $ = (id) => document.getElementById(id);
+
+function persistAdminSession(token) {
+  sessionStorage.setItem(ADMIN_SESSION_KEY, token);
+  window.name = `${ADMIN_WINDOW_SESSION_PREFIX}${token}`;
+}
+
+function clearPersistedAdminSession() {
+  sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  sessionStorage.removeItem("adminToken");
+  if (window.name.startsWith(ADMIN_WINDOW_SESSION_PREFIX)) window.name = "";
+}
+
+function persistedAdminToken() {
+  const storedToken = sessionStorage.getItem(ADMIN_SESSION_KEY);
+  if (storedToken) return storedToken;
+  const legacyToken = sessionStorage.getItem("adminToken");
+  if (legacyToken) {
+    persistAdminSession(legacyToken);
+    sessionStorage.removeItem("adminToken");
+    return legacyToken;
+  }
+  return window.name.startsWith(ADMIN_WINDOW_SESSION_PREFIX) ? window.name.slice(ADMIN_WINDOW_SESSION_PREFIX.length) : "";
+}
+
+function persistMemberSession(memberId) {
+  sessionStorage.setItem(MEMBER_SESSION_KEY, memberId);
+  window.name = `${MEMBER_WINDOW_SESSION_PREFIX}${memberId}`;
+}
+
+function clearPersistedMemberSession() {
+  sessionStorage.removeItem(MEMBER_SESSION_KEY);
+  if (window.name.startsWith(MEMBER_WINDOW_SESSION_PREFIX)) window.name = "";
+}
+
+function persistedMemberId() {
+  const storedMemberId = sessionStorage.getItem(MEMBER_SESSION_KEY);
+  if (storedMemberId) return storedMemberId;
+  return window.name.startsWith(MEMBER_WINDOW_SESSION_PREFIX) ? window.name.slice(MEMBER_WINDOW_SESSION_PREFIX.length) : "";
+}
 
 async function request(path, options = {}) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
@@ -637,7 +680,7 @@ function closePhotoLightbox() {
 async function leaveAdminDashboard() {
   const token = state.adminToken;
   state.adminToken = null;
-  sessionStorage.removeItem("adminToken");
+  clearPersistedAdminSession();
   $("adminDashboard").classList.add("hidden");
   $("identityView").classList.remove("hidden");
   $("pinInput").value = "";
@@ -645,8 +688,48 @@ async function leaveAdminDashboard() {
   if (token) await request("/api/admin/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
 }
 
+function showMemberDashboard(data) {
+  state.memberId = data.member.id;
+  state.selectedCalendarDate = "";
+  const serverDate = new Date(data.now);
+  state.selectedCalendarYear = serverDate.getFullYear();
+  state.selectedCalendarMonth = serverDate.getMonth();
+  state.calendarDraftYear = state.selectedCalendarYear;
+  state.calendarDraftMonth = state.selectedCalendarMonth;
+  state.historyPage = 1;
+  applyDashboard(data);
+  $("identityView").classList.add("hidden");
+  $("dashboard").classList.remove("hidden");
+}
+
+function leaveMemberDashboard() {
+  state.memberId = null;
+  state.active = null;
+  state.records = [];
+  state.statistics = null;
+  clearPersistedMemberSession();
+  $("dashboard").classList.add("hidden");
+  $("identityView").classList.remove("hidden");
+  $("usernameInput").value = "";
+  $("pinInput").value = "";
+  $("identityError").textContent = "";
+  $("usernameInput").focus();
+}
+
+async function restoreMemberSession() {
+  const memberId = persistedMemberId();
+  if (!memberId) return;
+  try {
+    const data = await request(`/api/members/${encodeURIComponent(memberId)}/dashboard`);
+    showMemberDashboard(data);
+  } catch {
+    state.memberId = null;
+    clearPersistedMemberSession();
+  }
+}
+
 async function restoreAdminSession() {
-  const token = sessionStorage.getItem("adminToken");
+  const token = persistedAdminToken();
   if (!token) return;
   state.adminToken = token;
   try {
@@ -655,7 +738,7 @@ async function restoreAdminSession() {
     $("adminDashboard").classList.remove("hidden");
   } catch {
     state.adminToken = null;
-    sessionStorage.removeItem("adminToken");
+    clearPersistedAdminSession();
   }
 }
 
@@ -666,6 +749,7 @@ async function setupIdentity() {
     $("identityError").textContent = serviceErrorMessage(error);
   }
   await restoreAdminSession();
+  if (!state.adminToken) await restoreMemberSession();
   $("identityForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const pin = $("pinInput").value.trim();
@@ -676,23 +760,16 @@ async function setupIdentity() {
       const data = await request("/api/login", { method: "POST", body: JSON.stringify({ name, pin }) });
       $("identityError").textContent = "";
       if (data.role === "admin") {
+        clearPersistedMemberSession();
         state.adminToken = data.token;
         await loadAdminDashboard();
-        sessionStorage.setItem("adminToken", data.token);
+        persistAdminSession(data.token);
         $("identityView").classList.add("hidden");
         $("adminDashboard").classList.remove("hidden");
       } else {
-        state.memberId = data.member.id;
-        state.selectedCalendarDate = "";
-        const serverDate = new Date(data.now);
-        state.selectedCalendarYear = serverDate.getFullYear();
-        state.selectedCalendarMonth = serverDate.getMonth();
-        state.calendarDraftYear = state.selectedCalendarYear;
-        state.calendarDraftMonth = state.selectedCalendarMonth;
-        state.historyPage = 1;
-        applyDashboard(data);
-        $("identityView").classList.add("hidden");
-        $("dashboard").classList.remove("hidden");
+        clearPersistedAdminSession();
+        showMemberDashboard(data);
+        persistMemberSession(data.member.id);
       }
     } catch (error) {
       $("identityError").textContent = `无法登录：${serviceErrorMessage(error)}`;
@@ -962,7 +1039,7 @@ async function confirmCheckin() {
   }
 }
 
-$("switchMember").addEventListener("click", () => { state.memberId = null; state.active = null; state.records = []; state.statistics = null; $("dashboard").classList.add("hidden"); $("identityView").classList.remove("hidden"); $("usernameInput").value = ""; $("pinInput").value = ""; $("identityError").textContent = ""; $("usernameInput").focus(); });
+$("switchMember").addEventListener("click", leaveMemberDashboard);
 $("closeSheet").addEventListener("click", closeSheet);
 $("sheetBackdrop").addEventListener("click", closeSheet);
 $("photoInput").addEventListener("change", handlePhoto);
