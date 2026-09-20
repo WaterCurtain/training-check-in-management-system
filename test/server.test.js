@@ -137,8 +137,8 @@ test("管理员可闭环处理异常记录并保留审计日志", async (context
   const normalId = `abnormal-normal-${suffix}`;
   const now = Date.now();
   database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)").run(memberId, `异常测试成员${suffix}`, "测试车间");
-  database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(longOpenId, memberId, new Date(now - 9 * 60 * 60 * 1000).toISOString(), "data/photos/test-start.png", new Date(now).toISOString());
-  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(longCompletedId, memberId, new Date(now - 10 * 60 * 60 * 1000).toISOString(), new Date(now - 60 * 60 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(longOpenId, memberId, new Date(now - 13 * 60 * 60 * 1000).toISOString(), "data/photos/test-start.png", new Date(now).toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, review_status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', 'pending', ?)").run(longCompletedId, memberId, new Date(now - 14 * 60 * 60 * 1000).toISOString(), new Date(now - 60 * 60 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
   database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(shortId, memberId, new Date(now - 90 * 1000).toISOString(), new Date(now - 30 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
   database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(normalId, memberId, new Date(now - 90 * 60 * 1000).toISOString(), new Date(now - 30 * 60 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
   server.listen(0, "127.0.0.1");
@@ -161,17 +161,17 @@ test("管理员可闭环处理异常记录并保留审计日志", async (context
   assert.equal(listed.status, 200);
   const records = (await listed.json()).records;
   const byId = new Map(records.map((record) => [record.id, record]));
-  assert.deepEqual(byId.get(longOpenId).anomalyTypes, ["未结束", "超过8小时"]);
-  assert.deepEqual(byId.get(longCompletedId).anomalyTypes, ["超过8小时"]);
+  assert.deepEqual(byId.get(longOpenId).anomalyTypes, ["未结束", "超过12小时"]);
+  assert.deepEqual(byId.get(longCompletedId).anomalyTypes, ["超过12小时"]);
   assert.deepEqual(byId.get(shortId).anomalyTypes, ["少于2分钟"]);
   assert.equal(byId.has(normalId), false);
 
-  const noReason = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 8 * 60 * 60 * 1000).toISOString() }) });
+  const noReason = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 12 * 60 * 60 * 1000).toISOString() }) });
   assert.equal(noReason.status, 400);
-  const invalidEnd = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 10 * 60 * 60 * 1000).toISOString(), reason: "补录结束" }) });
+  const invalidEnd = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 14 * 60 * 60 * 1000).toISOString(), reason: "补录结束" }) });
   assert.equal(invalidEnd.status, 400);
 
-  const completed = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 8 * 60 * 60 * 1000).toISOString(), reason: "成员忘记结束签到，补录一小时实训。" }) });
+  const completed = await fetch(`${baseUrl}/api/admin/abnormal-records/${longOpenId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 12 * 60 * 60 * 1000).toISOString(), reason: "成员忘记结束签到，补录一小时实训。" }) });
   assert.equal(completed.status, 200);
   assert.equal((await completed.json()).record.status, "completed");
 
@@ -188,7 +188,7 @@ test("管理员可闭环处理异常记录并保留审计日志", async (context
   assert.equal(completionLog.action, "补录结束时间");
   assert.equal(completionLog.beforeData.status, "training");
   assert.equal(completionLog.afterData.status, "completed");
-  assert.ok(completionLog.beforeData.durationMinutes > 8 * 60);
+  assert.ok(completionLog.beforeData.durationMinutes > 12 * 60);
   assert.equal(completionLog.afterData.durationMinutes, 60);
   assert.equal(voidLog.action, "作废记录");
   assert.equal(voidLog.beforeData.status, "completed");
@@ -201,4 +201,64 @@ test("管理员可闭环处理异常记录并保留审计日志", async (context
   assert.equal(remainingIds.has(longOpenId), false);
   assert.equal(remainingIds.has(shortId), false);
   assert.equal(remainingIds.has(longCompletedId), true);
+});
+
+test("补录、审核与作废会准确同步个人有效时长", async (context) => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const members = ["补录", "审核", "作废", "手动"].map((name) => ({ id: `accounting-${name}-${suffix}`, name: `统计测试${name}${suffix}` }));
+  const now = Date.now();
+  members.forEach((member) => database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)").run(member.id, member.name, "测试车间"));
+  const [supplementMember, approvalMember, voidMember, manualMember] = members;
+  const supplementId = `supplement-${suffix}`;
+  const approvalId = `approval-${suffix}`;
+  const voidId = `void-${suffix}`;
+  const manualId = `manual-${suffix}`;
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)").run(supplementId, supplementMember.id, new Date(now - 13 * 60 * 60 * 1000).toISOString(), "data/photos/test-start.png", new Date(now).toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, review_status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', 'pending', ?)").run(approvalId, approvalMember.id, new Date(now - 13 * 60 * 60 * 1000).toISOString(), new Date(now - 30 * 60 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(voidId, voidMember.id, new Date(now - 90 * 1000).toISOString(), new Date(now - 30 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, review_status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', 'pending', ?)").run(manualId, manualMember.id, new Date(now - 13 * 60 * 60 * 1000).toISOString(), new Date(now - 20 * 60 * 1000).toISOString(), "data/photos/test-start.png", "data/photos/test-end.png", new Date(now).toISOString());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  context.after(() => {
+    server.close();
+    database.prepare("DELETE FROM audit_logs WHERE record_id IN (?, ?, ?, ?)").run(supplementId, approvalId, voidId, manualId);
+    members.forEach((member) => { database.prepare("DELETE FROM sessions WHERE member_id = ?").run(member.id); database.prepare("DELETE FROM members WHERE id = ?").run(member.id); });
+  });
+  const login = await fetch(`${baseUrl}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account: "Admin", pin: "123456" }) });
+  const { token } = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  const dashboardFor = async (memberId) => (await fetch(`${baseUrl}/api/members/${memberId}/dashboard`)).json();
+
+  const supplementBefore = await dashboardFor(supplementMember.id);
+  assert.equal(supplementBefore.records.length, 0);
+  assert.equal(supplementBefore.statistics.monthMinutes, 0);
+  const supplemented = await fetch(`${baseUrl}/api/admin/abnormal-records/${supplementId}/complete`, { method: "POST", headers, body: JSON.stringify({ endedAt: new Date(now - 12 * 60 * 60 * 1000).toISOString(), reason: "补录一小时实训。" }) });
+  assert.equal(supplemented.status, 200);
+  const supplementAfter = await dashboardFor(supplementMember.id);
+  assert.equal(supplementAfter.records.length, 1);
+  assert.equal(supplementAfter.statistics.monthMinutes, 60);
+
+  const approvalBefore = await dashboardFor(approvalMember.id);
+  assert.equal(approvalBefore.records.length, 0);
+  const approved = await fetch(`${baseUrl}/api/admin/abnormal-records/${approvalId}/review`, { method: "POST", headers, body: JSON.stringify({ decision: "approve", reason: "核实现场记录，批准原始时长。" }) });
+  assert.equal(approved.status, 200);
+  const approvalAfter = await dashboardFor(approvalMember.id);
+  assert.equal(approvalAfter.records.length, 1);
+  assert.equal(approvalAfter.statistics.monthMinutes, 750);
+
+  const voidBefore = await dashboardFor(voidMember.id);
+  assert.equal(voidBefore.records.length, 1);
+  assert.equal(voidBefore.statistics.monthMinutes, 1);
+  const voided = await fetch(`${baseUrl}/api/admin/abnormal-records/${voidId}/void`, { method: "POST", headers, body: JSON.stringify({ reason: "短时误操作，作废记录。" }) });
+  assert.equal(voided.status, 200);
+  const voidAfter = await dashboardFor(voidMember.id);
+  assert.equal(voidAfter.records.length, 0);
+  assert.equal(voidAfter.statistics.monthMinutes, 0);
+
+  const manuallyRegistered = await fetch(`${baseUrl}/api/admin/abnormal-records/${manualId}/review`, { method: "POST", headers, body: JSON.stringify({ decision: "manual", durationMinutes: 120, reason: "按现场登记修正为两小时。" }) });
+  assert.equal(manuallyRegistered.status, 200);
+  const manualAfter = await dashboardFor(manualMember.id);
+  assert.equal(manualAfter.records.length, 1);
+  assert.equal(manualAfter.statistics.monthMinutes, 120);
 });

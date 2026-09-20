@@ -249,7 +249,8 @@ function renderAbnormalRecords() {
   $("abnormalRecords").innerHTML = records.length ? records.map((record) => {
     const timeText = record.end ? `${formatDateTime(record.start)} 至 ${formatDateTime(record.end)}` : `${formatDateTime(record.start)} 开始，尚未结束`;
     const canComplete = record.status === "training";
-    return `<article class="abnormal-record"><div><div class="abnormal-record-title"><strong>${escapeHtml(record.memberName || "已删除成员")}</strong><span>${escapeHtml(record.workshop || "")}</span>${record.anomalyTypes.map((type) => `<i>${escapeHtml(type)}</i>`).join("")}</div><p>${timeText} · ${formatMinutes(record.durationMinutes)}</p></div><div class="abnormal-record-actions">${canComplete ? `<button class="text-button complete-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">补录结束时间</button>` : ""}<button class="text-button void-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">作废记录</button></div></article>`;
+    const needsReview = record.reviewStatus === "pending";
+    return `<article class="abnormal-record"><div><div class="abnormal-record-title"><strong>${escapeHtml(record.memberName || "已删除成员")}</strong><span>${escapeHtml(record.workshop || "")}</span>${record.anomalyTypes.map((type) => `<i>${escapeHtml(type)}</i>`).join("")}</div><p>${timeText} · ${formatMinutes(record.durationMinutes)}${needsReview ? " · 等待管理员审核" : ""}</p></div><div class="abnormal-record-actions">${canComplete ? `<button class="text-button complete-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">补录结束时间</button>` : ""}${needsReview ? `<button class="text-button review-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">审核时长</button>` : ""}<button class="text-button void-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">作废记录</button></div></article>`;
   }).join("") : '<p class="admin-empty">系统会持续检查异常签到；处理完成的记录将不再出现在此列表。</p>';
   $("auditLogs").innerHTML = state.auditLogs.length ? state.auditLogs.map((log) => `<article class="audit-log"><header><strong>${escapeHtml(log.action)}</strong><span>${escapeHtml(log.adminId)} · ${formatDateTime(log.createdAt)}</span></header><p>记录 ${escapeHtml(log.recordId)} · 原因：${escapeHtml(log.reason)}</p><div><span>修改前：${escapeHtml(log.beforeData.end ? formatDateTime(log.beforeData.end) : "未结束")}（${escapeHtml(log.beforeData.status)} · ${formatMinutes(log.beforeData.durationMinutes)}）</span><span>修改后：${escapeHtml(log.afterData.end ? formatDateTime(log.afterData.end) : "未结束")}（${escapeHtml(log.afterData.status)} · ${formatMinutes(log.afterData.durationMinutes)}）</span></div></article>`).join("") : '<p class="admin-empty">尚无管理员修改记录。</p>';
 }
@@ -275,15 +276,21 @@ function openAbnormalAction(recordId, action) {
   if (!record) return;
   state.abnormalAction = { recordId, action };
   const isComplete = action === "complete";
-  $("abnormalActionTitle").textContent = isComplete ? "补录结束时间" : "作废异常记录";
-  $("abnormalActionDescription").textContent = isComplete ? `${record.memberName}的记录开始于 ${formatDateTime(record.start)}。` : "作废后该记录不再计入任何实训统计，且不可恢复。";
+  const isReview = action === "review";
+  $("abnormalActionTitle").textContent = isComplete ? "补录结束时间" : isReview ? "审核异常时长" : "作废异常记录";
+  $("abnormalActionDescription").textContent = isComplete ? `${record.memberName}的记录开始于 ${formatDateTime(record.start)}。` : isReview ? "审核通过或手动登记后，时长才会进入该成员的个人实训记录。" : "作废后该记录不再计入任何实训统计，且不可恢复。";
   $("abnormalEndedAtField").classList.toggle("hidden", !isComplete);
   $("abnormalEndedAt").required = isComplete;
+  $("abnormalReviewDecisionField").classList.toggle("hidden", !isReview);
+  $("abnormalReviewDecision").value = "approve";
+  $("abnormalManualDurationField").classList.add("hidden");
+  $("abnormalManualDuration").required = false;
+  $("abnormalManualDuration").value = "";
   $("abnormalEndedAt").value = dateTimeLocalValue(new Date());
   $("abnormalEndedAt").min = dateTimeLocalValue(record.start);
   $("abnormalReason").value = "";
   $("abnormalActionError").textContent = "";
-  $("saveAbnormalAction").textContent = isComplete ? "确认补录" : "确认作废";
+  $("saveAbnormalAction").textContent = isComplete ? "确认补录" : isReview ? "确认审核" : "确认作废";
   $("abnormalActionSheet").classList.remove("hidden");
   $("abnormalReason").focus();
 }
@@ -304,11 +311,15 @@ async function saveAbnormalAction(event) {
   try {
     const body = { reason: $("abnormalReason").value };
     if (action === "complete") body.endedAt = $("abnormalEndedAt").value;
-    await request(`/api/admin/abnormal-records/${encodeURIComponent(recordId)}/${action === "complete" ? "complete" : "void"}`, { method: "POST", headers: adminHeaders(), body: JSON.stringify(body) });
+    if (action === "review") {
+      body.decision = $("abnormalReviewDecision").value;
+      if (body.decision === "manual") body.durationMinutes = Number($("abnormalManualDuration").value);
+    }
+    await request(`/api/admin/abnormal-records/${encodeURIComponent(recordId)}/${action === "complete" ? "complete" : action === "review" ? "review" : "void"}`, { method: "POST", headers: adminHeaders(), body: JSON.stringify(body) });
     state.abnormalSaving = false;
     closeAbnormalAction();
     await loadAbnormalRecords();
-    showToast(action === "complete" ? "结束时间已补录并写入审计日志。" : "记录已作废并写入审计日志。");
+    showToast(action === "complete" ? "结束时间已补录并写入审计日志。" : action === "review" ? "审核结果已写入审计日志。" : "记录已作废并写入审计日志。");
   } catch (error) {
     $("abnormalActionError").textContent = serviceErrorMessage(error);
   } finally {
@@ -1000,7 +1011,7 @@ $("adminRecordCalendar").addEventListener("click", (event) => { const day = even
 $("abnormalRecords").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-record-id]");
   if (!button) return;
-  openAbnormalAction(button.dataset.recordId, button.classList.contains("complete-abnormal-record") ? "complete" : "void");
+  openAbnormalAction(button.dataset.recordId, button.classList.contains("complete-abnormal-record") ? "complete" : button.classList.contains("review-abnormal-record") ? "review" : "void");
 });
 $("adminOverviewRecordPagination").addEventListener("click", (event) => {
   const jumpButton = event.target.closest("button[data-admin-overview-page-jump]");
@@ -1077,6 +1088,12 @@ $("memberForm").addEventListener("submit", saveMember);
 $("closeAbnormalActionSheet").addEventListener("click", closeAbnormalAction);
 $("abnormalActionSheetBackdrop").addEventListener("click", closeAbnormalAction);
 $("abnormalActionForm").addEventListener("submit", saveAbnormalAction);
+$("abnormalReviewDecision").addEventListener("change", (event) => {
+  const isManual = event.target.value === "manual";
+  $("abnormalManualDurationField").classList.toggle("hidden", !isManual);
+  $("abnormalManualDuration").required = isManual;
+  if (isManual) $("abnormalManualDuration").focus();
+});
 $("memberManagementRows").addEventListener("click", (event) => {
   const memberId = event.target.dataset.memberId;
   if (!memberId) return;

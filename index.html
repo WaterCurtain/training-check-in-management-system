@@ -220,7 +220,7 @@
         </main>
         <main class="admin-main hidden" id="abnormalRecordManagement">
           <header class="admin-header">
-            <div><h1>异常记录</h1><p>自动识别未结束超过 8 小时、单次超过 8 小时及少于 2 分钟的实训记录。</p></div>
+            <div><h1>异常记录</h1><p>自动识别未结束超过 12 小时、单次超过 12 小时及少于 2 分钟的实训记录。</p></div>
             <div class="admin-actions"><button class="text-button" id="abnormalRecordsLogout" type="button">退出管理端</button></div>
           </header>
           <section class="admin-section" aria-labelledby="abnormalRecordsTitle">
@@ -293,6 +293,8 @@
         <div class="sheet-header"><div><h2 id="abnormalActionTitle">处理异常记录</h2><p id="abnormalActionDescription"></p></div><button class="close-button" id="closeAbnormalActionSheet" aria-label="关闭">×</button></div>
         <form class="identity-form member-form" id="abnormalActionForm">
           <label id="abnormalEndedAtField"><span>补录结束时间</span><input id="abnormalEndedAt" type="datetime-local" required /></label>
+          <label class="hidden" id="abnormalReviewDecisionField"><span>审核处理</span><select id="abnormalReviewDecision"><option value="approve">通过原始时长</option><option value="void">作废记录</option><option value="manual">手动登记时长</option></select></label>
+          <label class="hidden" id="abnormalManualDurationField"><span>登记时长（分钟）</span><input id="abnormalManualDuration" type="number" min="1" max="1440" step="1" inputmode="numeric" /></label>
           <label><span>修改原因</span><input id="abnormalReason" maxlength="500" placeholder="请说明处理原因" required /></label>
           <p class="form-error" id="abnormalActionError" role="alert"></p>
           <button class="primary-button" id="saveAbnormalAction" type="submit">确认处理</button>

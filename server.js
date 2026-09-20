@@ -10,6 +10,7 @@ const PHOTO_DIR = path.join(DATA_DIR, "photos");
 const PORT = Number(process.env.PORT || 4173);
 const ADMIN_ACCOUNT = "Admin";
 const ADMIN_PIN = "123456";
+const LONG_TRAINING_HOURS = 12;
 const adminSessions = new Set();
 const WORKSHOPS = ["炼钢维修车间", "精炼连铸维修车间", "轧钢维修车间", "行车车间"];
 
@@ -38,6 +39,7 @@ database.exec(`
     start_photo_path TEXT NOT NULL,
     end_photo_path TEXT,
     status TEXT NOT NULL DEFAULT 'training',
+    review_status TEXT NOT NULL DEFAULT 'approved',
     created_at TEXT NOT NULL
   ) STRICT;
   CREATE INDEX IF NOT EXISTS sessions_member_started_idx ON sessions(member_id, started_at DESC);
@@ -57,6 +59,11 @@ database.exec(`
 
 if (!database.prepare("PRAGMA table_info(members)").all().some((column) => column.name === "pin_hash")) {
   database.exec(`ALTER TABLE members ADD COLUMN pin_hash TEXT NOT NULL DEFAULT '${DEFAULT_MEMBER_PIN_HASH}'`);
+}
+const sessionsHaveReviewStatus = database.prepare("PRAGMA table_info(sessions)").all().some((column) => column.name === "review_status");
+if (!sessionsHaveReviewStatus) {
+  database.exec("ALTER TABLE sessions ADD COLUMN review_status TEXT NOT NULL DEFAULT 'approved'");
+  database.exec("UPDATE sessions SET review_status = 'pending' WHERE status = 'completed' AND (julianday(ended_at) - julianday(started_at)) * 24 > 12");
 }
 database.exec("CREATE UNIQUE INDEX IF NOT EXISTS members_name_unique_idx ON members(name)");
 
@@ -105,13 +112,15 @@ const statements = {
   deleteMemberSessions: database.prepare("DELETE FROM sessions WHERE member_id = ?"),
   deleteMember: database.prepare("DELETE FROM members WHERE id = ?"),
   active: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'training' LIMIT 1"),
-  sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' ORDER BY started_at DESC"),
+  sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' AND review_status = 'approved' ORDER BY started_at DESC"),
   allSessions: database.prepare("SELECT * FROM sessions ORDER BY started_at DESC"),
   sessionById: database.prepare("SELECT * FROM sessions WHERE id = ?"),
-  start: database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)"),
-  end: database.prepare("UPDATE sessions SET ended_at = ?, end_photo_path = ?, status = 'completed' WHERE id = ? AND member_id = ? AND status = 'training'"),
-  adminEnd: database.prepare("UPDATE sessions SET ended_at = ?, status = 'completed' WHERE id = ? AND status = 'training'"),
+  start: database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, review_status, created_at) VALUES (?, ?, ?, ?, 'training', 'approved', ?)"),
+  end: database.prepare("UPDATE sessions SET ended_at = ?, end_photo_path = ?, status = 'completed', review_status = ? WHERE id = ? AND member_id = ? AND status = 'training'"),
+  adminEnd: database.prepare("UPDATE sessions SET ended_at = ?, status = 'completed', review_status = ? WHERE id = ? AND status = 'training'"),
   voidSession: database.prepare("UPDATE sessions SET status = 'voided' WHERE id = ? AND status != 'voided'"),
+  approveSession: database.prepare("UPDATE sessions SET review_status = 'approved' WHERE id = ? AND status = 'completed' AND review_status = 'pending'"),
+  manuallyRegisterSession: database.prepare("UPDATE sessions SET ended_at = ?, status = 'completed', review_status = 'approved' WHERE id = ? AND status = 'completed' AND review_status = 'pending'"),
   createAuditLog: database.prepare("INSERT INTO audit_logs (id, admin_id, action, record_type, record_id, before_data, after_data, reason, created_at) VALUES (?, ?, ?, 'session', ?, ?, ?, ?, ?)"),
   auditLogs: database.prepare("SELECT * FROM audit_logs WHERE record_id = ? ORDER BY created_at DESC"),
   allAuditLogs: database.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100"),
@@ -132,7 +141,7 @@ function photoUrl(filePath) {
 
 function serializeSession(session) {
   if (!session) return null;
-  return { id: session.id, memberId: session.member_id, start: session.started_at, end: session.ended_at, startPhoto: photoUrl(session.start_photo_path), endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null, status: session.status };
+  return { id: session.id, memberId: session.member_id, start: session.started_at, end: session.ended_at, startPhoto: photoUrl(session.start_photo_path), endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null, status: session.status, reviewStatus: session.review_status };
 }
 
 function sessionDurationMinutes(session, now = new Date()) {
@@ -143,12 +152,16 @@ function sessionDurationMinutes(session, now = new Date()) {
 function abnormalTypes(session, now = new Date()) {
   if (session.status === "voided") return [];
   const duration = sessionDurationMinutes(session, now);
-  if (session.status === "training") return duration > 8 * 60 ? ["未结束", "超过8小时"] : [];
+  if (session.status === "training") return duration > LONG_TRAINING_HOURS * 60 ? ["未结束", `超过${LONG_TRAINING_HOURS}小时`] : [];
   if (session.status !== "completed") return [];
   const types = [];
-  if (duration > 8 * 60) types.push("超过8小时");
+  if (session.review_status === "pending" && duration > LONG_TRAINING_HOURS * 60) types.push(`超过${LONG_TRAINING_HOURS}小时`);
   if (duration < 2) types.push("少于2分钟");
   return types;
+}
+
+function reviewStatusForEnd(startedAt, endedAt) {
+  return new Date(endedAt).getTime() - new Date(startedAt).getTime() > LONG_TRAINING_HOURS * 60 * 60 * 1000 ? "pending" : "approved";
 }
 
 function auditSnapshot(session) {
@@ -160,6 +173,7 @@ function auditSnapshot(session) {
     startPhoto: photoUrl(session.start_photo_path),
     endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null,
     status: session.status,
+    reviewStatus: session.review_status,
     durationMinutes: Math.round(sessionDurationMinutes(session)),
   };
 }
@@ -187,7 +201,7 @@ function dashboard(memberId) {
   const now = new Date();
   const active = statements.active.get(memberId);
   const completed = statements.sessions.all(memberId);
-  const sessions = active ? [...completed, active] : completed;
+  const sessions = active && !abnormalTypes(active, now).length ? [...completed, active] : completed;
   const todayStart = startOfDay(now);
   const tomorrow = new Date(todayStart); tomorrow.setDate(tomorrow.getDate() + 1);
   const monday = new Date(todayStart); monday.setDate(todayStart.getDate() - ((todayStart.getDay() + 6) % 7));
@@ -225,13 +239,14 @@ function adminOverview(year, month) {
   const allMembers = statements.allMembers.all();
   const members = allMembers.filter((member) => member.active);
   const sessions = statements.allSessions.all().filter((session) => session.status !== "voided");
+  const effectiveSessions = sessions.filter((session) => session.review_status === "approved");
   const monthStart = new Date(selectedYear, selectedMonth, 1);
   const nextMonth = new Date(selectedYear, selectedMonth + 1, 1);
   const goalMinutes = 16 * 60;
   const memberStats = members.map((member) => {
-    const memberSessions = sessions.filter((session) => session.member_id === member.id);
+    const memberSessions = effectiveSessions.filter((session) => session.member_id === member.id);
     const monthMinutes = memberSessions.reduce((total, session) => total + minutesInRange(session, monthStart, nextMonth, now), 0);
-    const active = isCurrentPeriod ? memberSessions.find((session) => session.status === "training") : null;
+    const active = isCurrentPeriod ? sessions.find((session) => session.member_id === member.id && session.status === "training") : null;
     return { ...member, monthMinutes, monthCount: memberSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length, active: Boolean(active), activeSince: active?.started_at || null, goalMinutes };
   });
   const monthMinutes = memberStats.reduce((total, member) => total + member.monthMinutes, 0);
@@ -242,7 +257,7 @@ function adminOverview(year, month) {
   const previousMonthDays = new Date(selectedYear, selectedMonth, 0).getDate();
   const previousMemberStats = members.map((member) => ({
     minutes: sessions
-      .filter((session) => session.member_id === member.id)
+      .filter((session) => session.member_id === member.id && session.review_status === "approved")
       .reduce((total, session) => total + minutesInRange(session, previousMonthStart, previousMonthEnd, now), 0),
   }));
   const previousMonthMinutes = previousMemberStats.reduce((total, member) => total + member.minutes, 0);
@@ -254,8 +269,8 @@ function adminOverview(year, month) {
   for (let cursor = new Date(monthStart); cursor < rangeEnd; cursor.setDate(cursor.getDate() + 1)) {
     const dayStart = new Date(cursor);
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-    const daySessions = sessions.filter((session) => session.status === "completed" && minutesInRange(session, dayStart, dayEnd, now) > 0);
-    daily.push({ day: dayStart.getDate(), minutes: sessions.reduce((total, session) => total + minutesInRange(session, dayStart, dayEnd, now), 0), count: daySessions.length, members: new Set(daySessions.map((session) => session.member_id)).size });
+    const daySessions = effectiveSessions.filter((session) => session.status === "completed" && minutesInRange(session, dayStart, dayEnd, now) > 0);
+    daily.push({ day: dayStart.getDate(), minutes: effectiveSessions.reduce((total, session) => total + minutesInRange(session, dayStart, dayEnd, now), 0), count: daySessions.length, members: new Set(daySessions.map((session) => session.member_id)).size });
   }
   return {
     now: now.toISOString(),
@@ -267,7 +282,7 @@ function adminOverview(year, month) {
       averageDailyMinutes,
       goalReachedMembers: memberStats.filter((member) => member.monthMinutes >= goalMinutes).length,
       activeMembers: memberStats.filter((member) => member.active).length,
-      completedSessions: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length,
+      completedSessions: effectiveSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).length,
       abnormalRecords: sessions.filter((session) => abnormalTypes(session, now).length).length,
     },
     previousSummary: {
@@ -275,7 +290,7 @@ function adminOverview(year, month) {
       goalReachedMembers: previousGoalReachedMembers,
     },
     members: memberStats,
-    recentRecords: sessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
+    recentRecords: effectiveSessions.filter((session) => session.status === "completed" && new Date(session.started_at) < nextMonth && new Date(session.ended_at) > monthStart).map((session) => ({ ...serializeSession(session), memberName: memberInfo.get(session.member_id)?.name, workshop: memberInfo.get(session.member_id)?.workshop })),
     visualization: {
       daily,
       ranking: [...memberStats].sort((left, right) => right.monthMinutes - left.monthMinutes).map((member) => ({ id: member.id, name: member.name, minutes: member.monthMinutes })),
@@ -320,6 +335,12 @@ function parseAdminEndedAt(value, startedAt) {
   if (Number.isNaN(endedAt.getTime())) throw new Error("补录结束时间格式无效。");
   if (endedAt.getTime() <= new Date(startedAt).getTime()) throw new Error("补录结束时间必须晚于开始时间。");
   return endedAt.toISOString();
+}
+
+function manualDurationMinutes(value) {
+  const minutes = Number(value);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 24 * 60) throw new Error("手动登记时长必须是 1 至 1440 分钟的整数。");
+  return minutes;
 }
 
 function memberPayload(body) {
@@ -437,6 +458,7 @@ async function handleApi(request, response, pathname) {
   }
   const abnormalSessionMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/void$/.exec(pathname);
   const abnormalCompleteMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/complete$/.exec(pathname);
+  const abnormalReviewMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/review$/.exec(pathname);
   if (request.method === "POST" && abnormalCompleteMatch) {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     const session = statements.sessionById.get(decodeURIComponent(abnormalCompleteMatch[1]));
@@ -447,11 +469,11 @@ async function handleApi(request, response, pathname) {
     const endedAt = parseAdminEndedAt(body.endedAt, session.started_at);
     database.exec("BEGIN");
     try {
-      statements.adminEnd.run(endedAt, session.id);
+      statements.adminEnd.run(endedAt, reviewStatusForEnd(session.started_at, endedAt), session.id);
       const updated = statements.sessionById.get(session.id);
       saveAuditLog("补录结束时间", updated, session, reason);
       database.exec("COMMIT");
-      return sendJson(response, 200, { record: serializeSession(updated) });
+      return sendJson(response, 200, { record: serializeSession(updated), requiresReview: updated.review_status === "pending" });
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
@@ -470,6 +492,39 @@ async function handleApi(request, response, pathname) {
       statements.voidSession.run(session.id);
       const updated = statements.sessionById.get(session.id);
       saveAuditLog("作废记录", updated, session, reason);
+      database.exec("COMMIT");
+      return sendJson(response, 200, { record: serializeSession(updated) });
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  if (request.method === "POST" && abnormalReviewMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const session = statements.sessionById.get(decodeURIComponent(abnormalReviewMatch[1]));
+    if (!session) return sendError(response, 404, "实训记录不存在。");
+    if (session.status !== "completed" || session.review_status !== "pending") return sendError(response, 409, "该记录当前无需审核。");
+    const body = await readJson(request);
+    const reason = modificationReason(body);
+    const decision = body.decision;
+    if (!["approve", "void", "manual"].includes(decision)) return sendError(response, 400, "请选择有效的审核处理方式。");
+    database.exec("BEGIN");
+    try {
+      let action;
+      if (decision === "approve") {
+        statements.approveSession.run(session.id);
+        action = "审核通过";
+      } else if (decision === "void") {
+        statements.voidSession.run(session.id);
+        action = "审核作废";
+      } else {
+        const minutes = manualDurationMinutes(body.durationMinutes);
+        const endedAt = new Date(new Date(session.started_at).getTime() + minutes * 60 * 1000).toISOString();
+        statements.manuallyRegisterSession.run(endedAt, session.id);
+        action = "手动登记时长";
+      }
+      const updated = statements.sessionById.get(session.id);
+      saveAuditLog(action, updated, session, reason);
       database.exec("COMMIT");
       return sendJson(response, 200, { record: serializeSession(updated) });
     } catch (error) {
@@ -578,7 +633,8 @@ async function handleApi(request, response, pathname) {
     const active = statements.active.get(body.memberId);
     if (!active || active.id !== endMatch[1]) return sendError(response, 409, "未找到可结束的实训记录，请刷新页面后重试。");
     const photoPath = savePhoto(body.photoData, "end");
-    statements.end.run(new Date().toISOString(), photoPath, active.id, body.memberId);
+    const endedAt = new Date().toISOString();
+    statements.end.run(endedAt, photoPath, reviewStatusForEnd(active.started_at, endedAt), active.id, body.memberId);
     return sendJson(response, 200, dashboard(body.memberId));
   }
   return sendError(response, 404, "接口不存在。");
