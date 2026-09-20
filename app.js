@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false, abnormalDateFilter: "", abnormalPage: 1, auditDateFilter: "", auditActionFilter: "", auditQuery: "", auditPage: 1 };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminExportMemberId: "", adminExporting: false, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false, abnormalDateFilter: "", abnormalPage: 1, auditDateFilter: "", auditActionFilter: "", auditQuery: "", auditPage: 1 };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
 const ADMIN_LISTS_PER_PAGE = 10;
@@ -251,6 +251,59 @@ async function loadAdminDashboard() {
 
 function adminHeaders() {
   return { Authorization: `Bearer ${state.adminToken}` };
+}
+
+function setExportProgress(percent, label, detail, syncing) {
+  const progress = $("exportProgress");
+  progress.classList.remove("hidden");
+  $("exportProgressLabel").textContent = label;
+  $("exportProgressDetail").textContent = detail;
+  $("exportProgressValue").textContent = `${percent}%`;
+  $("exportProgressBar").style.setProperty("--export-progress", String(percent / 100));
+  $("exportSyncLabel").textContent = syncing ? "正在与服务同步数据" : "同步完成";
+  $("exportProgress").querySelector(".export-sync").classList.toggle("is-syncing", syncing);
+}
+
+function setExportControlsDisabled(disabled) {
+  ["adminExportMemberFilter", "exportMemberStatistics", "exportTrainingRecords"].forEach((id) => { $(id).disabled = disabled; });
+}
+
+async function downloadAdminExport(kind) {
+  if (state.adminExporting || !state.adminDashboardData) return;
+  state.adminExporting = true;
+  setExportControlsDisabled(true);
+  const isArchive = kind === "records";
+  const period = `${state.adminOverviewYear}年${String(state.adminOverviewMonth + 1).padStart(2, "0")}月`;
+  const params = new URLSearchParams({ year: String(state.adminOverviewYear), month: String(state.adminOverviewMonth + 1) });
+  if (state.adminExportMemberId) params.set("memberId", state.adminExportMemberId);
+  setExportProgress(12, "正在准备导出", `已锁定 ${period} 的当前筛选范围`, false);
+  try {
+    const endpoint = isArchive ? "/api/admin/exports/training-records.zip" : "/api/admin/exports/member-statistics.csv";
+    const download = fetch(`${endpoint}?${params}`, { headers: adminHeaders() });
+    setExportProgress(42, "正在汇总实训数据", "正在与服务同步时长、达标状态和异常记录", true);
+    const response = await download;
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "导出失败，请稍后重试。");
+    }
+    setExportProgress(76, isArchive ? "正在打包图表与明细" : "正在生成成员统计表", isArchive ? "正在写入成员排名、实训明细和组合图" : "正在写入中文表头与月度进度", true);
+    const blob = await response.blob();
+    setExportProgress(94, "正在启动下载", "文件已生成，正在交给浏览器保存", false);
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${period}${isArchive ? "实训记录.zip" : "成员统计.csv"}`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+    setExportProgress(100, "导出完成", isArchive ? "ZIP 已包含成员月度汇总、实训明细和柱线组合图。" : "成员统计 CSV 已开始下载。", false);
+  } catch (error) {
+    setExportProgress(0, "导出未完成", serviceErrorMessage(error), false);
+    showToast(serviceErrorMessage(error));
+  } finally {
+    state.adminExporting = false;
+    setExportControlsDisabled(false);
+  }
 }
 
 async function loadManagedMembers() {
@@ -645,6 +698,10 @@ function renderAdminDashboard(data) {
   $("adminOverviewMonthFilter").innerHTML = Array.from({ length: 12 }, (_, month) => `<option value="${month}">${month + 1}月</option>`).join("");
   $("adminOverviewYearFilter").value = state.adminOverviewDraftYear ?? data.selectedYear;
   $("adminOverviewMonthFilter").value = state.adminOverviewDraftMonth ?? data.selectedMonth;
+  if (!data.members.some((member) => member.id === state.adminExportMemberId)) state.adminExportMemberId = "";
+  $("adminExportMemberFilter").innerHTML = `<option value="">全部成员</option>${data.members.map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.workshop)}</option>`).join("")}`;
+  $("adminExportMemberFilter").value = state.adminExportMemberId;
+  $("adminExportSummary").textContent = `当前导出范围：${periodLabel} · ${state.adminExportMemberId ? "已选择单个成员" : "全部成员"}。年月可在页面顶部切换后确定。`;
   $("adminMemberRows").innerHTML = [...data.members].sort((left, right) => {
     const progressDifference = right.monthMinutes / right.goalMinutes - left.monthMinutes / left.goalMinutes;
     return progressDifference || right.monthMinutes - left.monthMinutes || left.name.localeCompare(right.name, "zh-CN");
@@ -1085,6 +1142,12 @@ $("showAbnormalRecords").addEventListener("click", showAbnormalRecords);
 $("showMemberManagement").addEventListener("click", showMemberManagement);
 $("adminOverviewYearFilter").addEventListener("change", (event) => { state.adminOverviewDraftYear = Number(event.target.value); });
 $("adminOverviewMonthFilter").addEventListener("change", (event) => { state.adminOverviewDraftMonth = Number(event.target.value); });
+$("adminExportMemberFilter").addEventListener("change", (event) => {
+  state.adminExportMemberId = event.target.value;
+  if (state.adminDashboardData) renderAdminDashboard(state.adminDashboardData);
+});
+$("exportMemberStatistics").addEventListener("click", () => downloadAdminExport("members"));
+$("exportTrainingRecords").addEventListener("click", () => downloadAdminExport("records"));
 $("applyAdminOverviewMonth").addEventListener("click", () => {
   state.adminOverviewYear = state.adminOverviewDraftYear;
   state.adminOverviewMonth = state.adminOverviewDraftMonth;

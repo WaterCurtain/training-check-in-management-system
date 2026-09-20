@@ -135,6 +135,16 @@ function sendError(response, status, message) {
   sendJson(response, status, { error: message });
 }
 
+function sendDownload(response, filename, contentType, content) {
+  response.writeHead(200, {
+    "Content-Type": contentType,
+    "Content-Length": content.length,
+    "Content-Disposition": `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "Cache-Control": "no-store",
+  });
+  response.end(content);
+}
+
 function photoUrl(filePath) {
   return `/uploads/${path.basename(filePath)}`;
 }
@@ -202,6 +212,166 @@ function minutesInRange(session, rangeStart, rangeEnd, now) {
   const start = new Date(session.started_at).getTime();
   const end = new Date(session.ended_at || now).getTime();
   return Math.max(0, Math.round((Math.min(end, rangeEnd.getTime()) - Math.max(start, rangeStart.getTime())) / 60000));
+}
+
+function formatMinutesForExport(minutes) {
+  const total = Math.max(0, Math.round(minutes));
+  return `${Math.floor(total / 60)}小时${String(total % 60).padStart(2, "0")}分钟`;
+}
+
+function progressForExport(minutes, goalMinutes) {
+  const percentage = Math.round(minutes / goalMinutes * 100);
+  const completed = Math.min(10, Math.round(percentage / 10));
+  return `[${"■".repeat(completed)}${"□".repeat(10 - completed)}] ${percentage}%`;
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function csvBuffer(rows) {
+  return Buffer.from(`\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`, "utf8");
+}
+
+function crc32(buffer) {
+  let value = 0xffffffff;
+  for (const byte of buffer) {
+    value ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+  }
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+function zipBuffer(entries) {
+  const files = entries.map(({ name, content }) => ({ name: Buffer.from(name), content: Buffer.from(content), crc: crc32(content) }));
+  let offset = 0;
+  const body = [];
+  const directory = [];
+  files.forEach((file) => {
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(0x0800, 6);
+    header.writeUInt32LE(file.crc, 14);
+    header.writeUInt32LE(file.content.length, 18);
+    header.writeUInt32LE(file.content.length, 22);
+    header.writeUInt16LE(file.name.length, 26);
+    body.push(header, file.name, file.content);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt32LE(file.crc, 16);
+    central.writeUInt32LE(file.content.length, 20);
+    central.writeUInt32LE(file.content.length, 24);
+    central.writeUInt16LE(file.name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    directory.push(central, file.name);
+    offset += header.length + file.name.length + file.content.length;
+  });
+  const directorySize = directory.reduce((size, part) => size + part.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(directorySize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...body, ...directory, end]);
+}
+
+function chartPng(daily, year, month) {
+  const width = 1200;
+  const height = 640;
+  const pixels = Buffer.alloc(width * height * 4, 255);
+  const color = (hex) => [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16), 255];
+  const paint = (x, y, shade) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const index = (y * width + x) * 4;
+    pixels[index] = shade[0]; pixels[index + 1] = shade[1]; pixels[index + 2] = shade[2]; pixels[index + 3] = shade[3];
+  };
+  const fill = (x, y, w, h, shade) => {
+    for (let row = Math.max(0, y); row < Math.min(height, y + h); row += 1) for (let column = Math.max(0, x); column < Math.min(width, x + w); column += 1) paint(column, row, shade);
+  };
+  const line = (fromX, fromY, toX, toY, shade) => {
+    const steps = Math.max(Math.abs(toX - fromX), Math.abs(toY - fromY), 1);
+    for (let step = 0; step <= steps; step += 1) paint(Math.round(fromX + (toX - fromX) * step / steps), Math.round(fromY + (toY - fromY) * step / steps), shade);
+  };
+  const navy = color("#10213f");
+  const blue = color("#0b6cf4");
+  const green = color("#1eaf72");
+  const grid = color("#e4eaf3");
+  const softBlue = color("#eaf3ff");
+  const plot = { left: 76, right: 42, top: 78, bottom: 82 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  fill(0, 0, width, 18, navy);
+  fill(plot.left, plot.top, plotWidth, plotHeight, softBlue);
+  for (let ratio = 0; ratio <= 4; ratio += 1) line(plot.left, plot.top + plotHeight * ratio / 4, width - plot.right, plot.top + plotHeight * ratio / 4, grid);
+  line(plot.left, plot.top, plot.left, height - plot.bottom, navy);
+  line(plot.left, height - plot.bottom, width - plot.right, height - plot.bottom, navy);
+  const max = Math.max(...daily.map((item) => item.minutes), 1);
+  const step = plotWidth / Math.max(daily.length, 1);
+  const points = daily.map((item, index) => {
+    const barHeight = Math.round(item.minutes / max * (plotHeight - 12));
+    const x = Math.round(plot.left + step * index + Math.max(2, step * .2));
+    const barWidth = Math.max(3, Math.round(step * .6));
+    fill(x, height - plot.bottom - barHeight, barWidth, Math.max(barHeight, 2), blue);
+    return [Math.round(plot.left + step * (index + .5)), Math.round(height - plot.bottom - item.minutes / max * (plotHeight - 12))];
+  });
+  points.slice(1).forEach((point, index) => line(points[index][0], points[index][1], point[0], point[1], green));
+  points.forEach(([x, y]) => fill(x - 3, y - 3, 7, 7, green));
+  fill(76, 34, 24, 10, blue);
+  fill(260, 34, 24, 10, green);
+  const text = Buffer.from(`标题\0${year}年${month}月实训趋势图；蓝色柱状表示每日实训时长，绿色折线表示每日实训时长趋势。`, "utf8");
+  const chunk = (type, content) => {
+    const typeBuffer = Buffer.from(type);
+    const length = Buffer.alloc(4); length.writeUInt32BE(content.length);
+    const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([typeBuffer, content])));
+    return Buffer.concat([length, typeBuffer, content, checksum]);
+  };
+  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 6;
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let row = 0; row < height; row += 1) { raw[row * (width * 4 + 1)] = 0; pixels.copy(raw, row * (width * 4 + 1) + 1, row * width * 4, (row + 1) * width * 4); }
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("tEXt", text), chunk("IDAT", require("node:zlib").deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+function photoPathForExport(filePath) {
+  if (!filePath) return "";
+  const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
+  return path.relative(ROOT, absolutePath).split(path.sep).join("/");
+}
+
+function exportStatus(session, now) {
+  if (session.status === "voided") return "已作废";
+  const anomalies = abnormalTypes(session, now);
+  if (anomalies.length) return `异常（${anomalies.join("、")}）`;
+  if (session.status === "training") return "实训中";
+  return session.review_status === "pending" ? "待审核" : "已完成";
+}
+
+function adminExport(year, month, memberId) {
+  const now = new Date();
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 1);
+  const selectedMembers = statements.allMembers.all().filter((member) => member.active && (!memberId || member.id === memberId));
+  const memberMap = new Map(selectedMembers.map((member) => [member.id, member]));
+  const sessions = statements.allSessions.all().filter((session) => memberMap.has(session.member_id) && new Date(session.started_at) < monthEnd && new Date(session.ended_at || now) > monthStart);
+  const goalMinutes = 16 * 60;
+  const members = selectedMembers.map((member) => {
+    const records = sessions.filter((session) => session.member_id === member.id);
+    const effective = records.filter((session) => session.status === "completed" && session.review_status === "approved");
+    const monthMinutes = effective.reduce((total, session) => total + minutesInRange(session, monthStart, monthEnd, now), 0);
+    const abnormalCount = records.filter((session) => abnormalTypes(session, now).length).length;
+    return { ...member, monthMinutes, monthCount: effective.length, goalMinutes, abnormalCount };
+  }).sort((left, right) => right.monthMinutes - left.monthMinutes || left.name.localeCompare(right.name, "zh-CN"));
+  const days = new Date(year, month, 0).getDate();
+  const daily = Array.from({ length: days }, (_, index) => {
+    const start = new Date(year, month - 1, index + 1);
+    const end = new Date(year, month - 1, index + 2);
+    return { day: index + 1, minutes: sessions.filter((session) => session.status === "completed" && session.review_status === "approved").reduce((total, session) => total + minutesInRange(session, start, end, now), 0) };
+  });
+  return { members, sessions: sessions.sort((left, right) => new Date(right.started_at) - new Date(left.started_at)), daily, now };
 }
 
 function dashboard(memberId) {
@@ -450,6 +620,30 @@ async function handleApi(request, response, pathname) {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
     const query = new URL(request.url, `http://${request.headers.host || "localhost"}`).searchParams;
     return sendJson(response, 200, adminOverview(Number(query.get("year")), Number(query.get("month")) - 1));
+  }
+  if (request.method === "GET" && (pathname === "/api/admin/exports/member-statistics.csv" || pathname === "/api/admin/exports/training-records.zip")) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const query = new URL(request.url, `http://${request.headers.host || "localhost"}`).searchParams;
+    const year = Number(query.get("year"));
+    const month = Number(query.get("month"));
+    const memberId = query.get("memberId") || "";
+    if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) return sendError(response, 400, "请选择有效的导出年月。");
+    if (memberId && (!statements.memberAny.get(memberId) || !statements.memberAny.get(memberId).active)) return sendError(response, 404, "成员不存在或已停用。");
+    const report = adminExport(year, month, memberId);
+    const memberRows = [["排名", "姓名", "所属车间", "当月实训时长", "月度目标", "实训进度", "达标状态", "异常记录条数", "有效实训次数"], ...report.members.map((member, index) => [index + 1, member.name, member.workshop, formatMinutesForExport(member.monthMinutes), formatMinutesForExport(member.goalMinutes), progressForExport(member.monthMinutes, member.goalMinutes), member.monthMinutes >= member.goalMinutes ? "已达标" : "未达标", member.abnormalCount, member.monthCount])];
+    const memberCsv = csvBuffer(memberRows);
+    const prefix = `${year}年${String(month).padStart(2, "0")}月`;
+    if (pathname.endsWith("member-statistics.csv")) return sendDownload(response, `${prefix}成员统计.csv`, "text/csv; charset=utf-8", memberCsv);
+    const recordRows = [["记录编号", "姓名", "所属车间", "日期", "开始时间", "结束时间", "本次实训时长", "当月计入时长", "状态", "开始照片路径", "结束照片路径"], ...report.sessions.map((session) => {
+      const member = report.members.find((item) => item.id === session.member_id);
+      return [session.id, member?.name || "成员已删除", member?.workshop || "未设置车间", new Date(session.started_at).toLocaleDateString("zh-CN"), session.started_at, session.ended_at || "", formatMinutesForExport(sessionDurationMinutes(session, report.now)), formatMinutesForExport(minutesInRange(session, new Date(year, month - 1, 1), new Date(year, month, 1), report.now)), exportStatus(session, report.now), photoPathForExport(session.start_photo_path), photoPathForExport(session.end_photo_path)];
+    })];
+    const archive = zipBuffer([
+      { name: `${prefix}成员月度汇总.csv`, content: memberCsv },
+      { name: `${prefix}实训明细.csv`, content: csvBuffer(recordRows) },
+      { name: `${prefix}实训趋势图.png`, content: chartPng(report.daily, year, month) },
+    ]);
+    return sendDownload(response, `${prefix}实训记录.zip`, "application/zip", archive);
   }
   if (request.method === "GET" && pathname === "/api/admin/records") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");

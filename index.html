@@ -175,6 +175,19 @@
             <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3v4m10-4v4M5 9h14v10H5z"/><path d="M8 14h3m2 0h3"/></svg></span><span>当前实训中</span><strong id="adminActiveMembers">0 人</strong><small>实时同步签到状态</small></article>
             <article><span class="admin-kpi-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 3 20h18L12 3Zm0 6v4m0 3h.01"/></svg></span><span>异常记录</span><strong id="adminAbnormalRecords">0 条</strong><small>待管理员处理</small></article>
           </section>
+          <section class="admin-section export-section" aria-labelledby="adminExportTitle">
+            <div class="admin-section-heading"><div><h2 id="adminExportTitle">导出月度实训数据</h2><p id="adminExportSummary">选择成员后，导出范围会与当前年月保持一致。</p></div></div>
+            <div class="export-toolbar">
+              <label><span>成员范围</span><select id="adminExportMemberFilter" aria-label="选择导出成员"></select></label>
+              <div class="export-actions"><button class="secondary-button" id="exportMemberStatistics" type="button">成员统计 CSV</button><button class="primary-button" id="exportTrainingRecords" type="button">实训记录 ZIP</button></div>
+            </div>
+            <div class="export-progress hidden" id="exportProgress" role="status" aria-live="polite">
+              <div class="export-progress-heading"><div><strong id="exportProgressLabel">正在准备导出</strong><span id="exportProgressDetail">正在确认导出范围</span></div><span class="export-progress-value" id="exportProgressValue">0%</span></div>
+              <div class="export-progress-track" aria-hidden="true"><i id="exportProgressBar"></i></div>
+              <div class="export-sync"><i aria-hidden="true"></i><span id="exportSyncLabel">等待同步</span></div>
+            </div>
+            <p class="export-note">实训记录 ZIP 包含成员月度排名、实训明细和柱线组合图 PNG。</p>
+          </section>
           <section class="admin-visuals" aria-labelledby="adminVisualsTitle">
             <div class="admin-section-heading"><div><h2 id="adminVisualsTitle">本月训练数据</h2></div></div>
             <div class="admin-chart-wide">

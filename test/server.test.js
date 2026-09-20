@@ -128,6 +128,75 @@ test("管理员需要认证后才能读取训练总览", async (context) => {
   assert.equal(expired.status, 401);
 });
 
+test("管理员可按年月和成员导出月度 CSV 与含组合图的 ZIP", async (context) => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const memberId = `export-member-${suffix}`;
+  const completedId = `export-completed-${suffix}`;
+  const abnormalId = `export-abnormal-${suffix}`;
+  const now = new Date();
+  const startedAt = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString();
+  const endedAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  const shortStartedAt = new Date(now.getTime() - 50 * 60 * 1000).toISOString();
+  const shortEndedAt = new Date(now.getTime() - 49 * 60 * 1000).toISOString();
+  database.prepare("INSERT INTO members (id, name, workshop) VALUES (?, ?, ?)").run(memberId, `导出测试成员${suffix}`, "测试车间");
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(completedId, memberId, startedAt, endedAt, "data/photos/export-start.png", "data/photos/export-end.png", now.toISOString());
+  database.prepare("INSERT INTO sessions (id, member_id, started_at, ended_at, start_photo_path, end_photo_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?)").run(abnormalId, memberId, shortStartedAt, shortEndedAt, "data/photos/export-short-start.png", "data/photos/export-short-end.png", now.toISOString());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  context.after(() => {
+    server.close();
+    database.prepare("DELETE FROM sessions WHERE member_id = ?").run(memberId);
+    database.prepare("DELETE FROM members WHERE id = ?").run(memberId);
+  });
+
+  const query = new URLSearchParams({ year: String(now.getFullYear()), month: String(now.getMonth() + 1), memberId });
+  const anonymous = await fetch(`${baseUrl}/api/admin/exports/member-statistics.csv?${query}`);
+  assert.equal(anonymous.status, 401);
+  const login = await fetch(`${baseUrl}/api/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account: "Admin", pin: "123456" }) });
+  const { token } = await login.json();
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const memberCsv = await fetch(`${baseUrl}/api/admin/exports/member-statistics.csv?${query}`, { headers });
+  assert.equal(memberCsv.status, 200);
+  assert.match(memberCsv.headers.get("content-type"), /text\/csv/);
+  const memberCsvText = Buffer.from(await memberCsv.arrayBuffer()).toString("utf8");
+  assert.match(memberCsvText, /排名/);
+  assert.match(memberCsvText, /当月实训时长/);
+  assert.match(memberCsvText, /异常记录条数/);
+  assert.match(memberCsvText, new RegExp(`导出测试成员${suffix}`));
+  assert.match(memberCsvText, /"1"/);
+
+  const archiveResponse = await fetch(`${baseUrl}/api/admin/exports/training-records.zip?${query}`, { headers });
+  assert.equal(archiveResponse.status, 200);
+  assert.equal(archiveResponse.headers.get("content-type"), "application/zip");
+  const archive = Buffer.from(await archiveResponse.arrayBuffer());
+  assert.equal(archive.readUInt32LE(0), 0x04034b50);
+  const entries = new Map();
+  for (let offset = 0; archive.readUInt32LE(offset) === 0x04034b50;) {
+    const size = archive.readUInt32LE(offset + 18);
+    const nameLength = archive.readUInt16LE(offset + 26);
+    const extraLength = archive.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const contentStart = nameStart + nameLength + extraLength;
+    entries.set(archive.subarray(nameStart, nameStart + nameLength).toString("utf8"), archive.subarray(contentStart, contentStart + size));
+    offset = contentStart + size;
+  }
+  const names = [...entries.keys()];
+  const summaryName = names.find((name) => name.endsWith("成员月度汇总.csv"));
+  const detailName = names.find((name) => name.endsWith("实训明细.csv"));
+  const chartName = names.find((name) => name.endsWith("实训趋势图.png"));
+  assert.ok(summaryName);
+  assert.ok(detailName);
+  assert.ok(chartName);
+  assert.match(entries.get(summaryName).toString("utf8"), /实训进度/);
+  const detailText = entries.get(detailName).toString("utf8");
+  assert.match(detailText, /开始照片路径/);
+  assert.match(detailText, /data\/photos\/export-start\.png/);
+  assert.match(detailText, /异常（少于2分钟）/);
+  assert.deepEqual([...entries.get(chartName).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+});
+
 test("管理员可闭环处理异常记录并保留审计日志", async (context) => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const memberId = `abnormal-member-${suffix}`;
