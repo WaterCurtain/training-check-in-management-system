@@ -649,6 +649,7 @@ function renderDailyTrainingChart() {
 
 function renderWeeklyAndMonthlySummary() {
   const now = new Date(state.serverNow);
+  const records = chartRecords();
   const monday = startOfDay(now);
   monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
   const weekValues = chartRange(records, monday, 7, now);
