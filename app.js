@@ -1,4 +1,4 @@
-const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminTrendRange: "week" };
+const state = { memberId: null, members: [], action: null, photoData: null, active: null, records: [], statistics: null, serverNow: null, selectedCalendarDate: "", selectedCalendarYear: null, selectedCalendarMonth: null, calendarDraftYear: null, calendarDraftMonth: null, historyPage: 1, submitting: false, adminToken: null, managedMembers: [], editingMemberId: null, memberSaving: false, adminRecords: [], adminRecordMembers: [], adminRecordMemberId: "", adminRecordDraftMemberId: "", adminRecordYear: null, adminRecordMonth: null, adminRecordDraftYear: null, adminRecordDraftMonth: null, adminCalendarDate: "", adminOverviewRecords: [], adminOverviewRecordPage: 1, adminDashboardData: null, adminOverviewYear: null, adminOverviewMonth: null, adminOverviewDraftYear: null, adminOverviewDraftMonth: null, adminTrendRange: "week", abnormalRecords: [], auditLogs: [], abnormalAction: null, abnormalSaving: false };
 const ADMIN_RECORDS_PER_PAGE = 10;
 const MEMBER_RECORDS_PER_PAGE = 10;
 const $ = (id) => document.getElementById(id);
@@ -223,6 +223,100 @@ async function loadAdminRecords(memberId = state.adminRecordMemberId) {
   renderAdminRecords();
 }
 
+async function loadAbnormalRecords() {
+  const [records, audits] = await Promise.all([
+    request("/api/admin/abnormal-records", { headers: adminHeaders() }),
+    request("/api/admin/audit-logs", { headers: adminHeaders() }),
+  ]);
+  state.abnormalRecords = records.records;
+  state.auditLogs = audits.logs;
+  renderAbnormalRecords();
+}
+
+function formatDateTime(date) {
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(date));
+}
+
+function dateTimeLocalValue(date) {
+  const value = new Date(date);
+  value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
+  return value.toISOString().slice(0, 16);
+}
+
+function renderAbnormalRecords() {
+  const records = state.abnormalRecords;
+  $("abnormalRecordSummary").textContent = records.length ? `当前共 ${records.length} 条待处理异常记录。` : "暂无待处理异常记录。";
+  $("abnormalRecords").innerHTML = records.length ? records.map((record) => {
+    const timeText = record.end ? `${formatDateTime(record.start)} 至 ${formatDateTime(record.end)}` : `${formatDateTime(record.start)} 开始，尚未结束`;
+    const canComplete = record.status === "training";
+    return `<article class="abnormal-record"><div><div class="abnormal-record-title"><strong>${escapeHtml(record.memberName || "已删除成员")}</strong><span>${escapeHtml(record.workshop || "")}</span>${record.anomalyTypes.map((type) => `<i>${escapeHtml(type)}</i>`).join("")}</div><p>${timeText} · ${formatMinutes(record.durationMinutes)}</p></div><div class="abnormal-record-actions">${canComplete ? `<button class="text-button complete-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">补录结束时间</button>` : ""}<button class="text-button void-abnormal-record" data-record-id="${escapeHtml(record.id)}" type="button">作废记录</button></div></article>`;
+  }).join("") : '<p class="admin-empty">系统会持续检查异常签到；处理完成的记录将不再出现在此列表。</p>';
+  $("auditLogs").innerHTML = state.auditLogs.length ? state.auditLogs.map((log) => `<article class="audit-log"><header><strong>${escapeHtml(log.action)}</strong><span>${escapeHtml(log.adminId)} · ${formatDateTime(log.createdAt)}</span></header><p>记录 ${escapeHtml(log.recordId)} · 原因：${escapeHtml(log.reason)}</p><div><span>修改前：${escapeHtml(log.beforeData.end ? formatDateTime(log.beforeData.end) : "未结束")}（${escapeHtml(log.beforeData.status)} · ${formatMinutes(log.beforeData.durationMinutes)}）</span><span>修改后：${escapeHtml(log.afterData.end ? formatDateTime(log.afterData.end) : "未结束")}（${escapeHtml(log.afterData.status)} · ${formatMinutes(log.afterData.durationMinutes)}）</span></div></article>`).join("") : '<p class="admin-empty">尚无管理员修改记录。</p>';
+}
+
+async function showAbnormalRecords() {
+  try {
+    await loadAbnormalRecords();
+    $("adminOverview").classList.add("hidden");
+    $("adminRecordManagement").classList.add("hidden");
+    $("memberManagement").classList.add("hidden");
+    $("abnormalRecordManagement").classList.remove("hidden");
+    $("showAdminOverview").className = "admin-nav-button";
+    $("showAdminRecords").className = "admin-nav-button";
+    $("showMemberManagement").className = "admin-nav-button";
+    $("showAbnormalRecords").className = "admin-nav-current";
+  } catch (error) {
+    showToast(serviceErrorMessage(error));
+  }
+}
+
+function openAbnormalAction(recordId, action) {
+  const record = state.abnormalRecords.find((item) => item.id === recordId);
+  if (!record) return;
+  state.abnormalAction = { recordId, action };
+  const isComplete = action === "complete";
+  $("abnormalActionTitle").textContent = isComplete ? "补录结束时间" : "作废异常记录";
+  $("abnormalActionDescription").textContent = isComplete ? `${record.memberName}的记录开始于 ${formatDateTime(record.start)}。` : "作废后该记录不再计入任何实训统计，且不可恢复。";
+  $("abnormalEndedAtField").classList.toggle("hidden", !isComplete);
+  $("abnormalEndedAt").required = isComplete;
+  $("abnormalEndedAt").value = dateTimeLocalValue(new Date());
+  $("abnormalEndedAt").min = dateTimeLocalValue(record.start);
+  $("abnormalReason").value = "";
+  $("abnormalActionError").textContent = "";
+  $("saveAbnormalAction").textContent = isComplete ? "确认补录" : "确认作废";
+  $("abnormalActionSheet").classList.remove("hidden");
+  $("abnormalReason").focus();
+}
+
+function closeAbnormalAction() {
+  if (state.abnormalSaving) return;
+  $("abnormalActionSheet").classList.add("hidden");
+  state.abnormalAction = null;
+}
+
+async function saveAbnormalAction(event) {
+  event.preventDefault();
+  if (!state.abnormalAction || state.abnormalSaving) return;
+  state.abnormalSaving = true;
+  const { recordId, action } = state.abnormalAction;
+  const button = $("saveAbnormalAction");
+  button.disabled = true;
+  try {
+    const body = { reason: $("abnormalReason").value };
+    if (action === "complete") body.endedAt = $("abnormalEndedAt").value;
+    await request(`/api/admin/abnormal-records/${encodeURIComponent(recordId)}/${action === "complete" ? "complete" : "void"}`, { method: "POST", headers: adminHeaders(), body: JSON.stringify(body) });
+    state.abnormalSaving = false;
+    closeAbnormalAction();
+    await loadAbnormalRecords();
+    showToast(action === "complete" ? "结束时间已补录并写入审计日志。" : "记录已作废并写入审计日志。");
+  } catch (error) {
+    $("abnormalActionError").textContent = serviceErrorMessage(error);
+  } finally {
+    state.abnormalSaving = false;
+    button.disabled = false;
+  }
+}
+
 function renderManagedMembers() {
   $("memberCount").textContent = `共 ${state.managedMembers.length} 名成员`;
   $("memberManagementRows").innerHTML = state.managedMembers.map((member) => `<tr><td><strong>${escapeHtml(member.name)}</strong></td><td>${escapeHtml(member.workshop)}</td><td><span class="admin-status ${member.active ? "admin-status-complete" : "admin-status-muted"}">${member.active ? "正常使用" : "已停用"}</span></td><td class="member-row-actions"><button class="text-button edit-member" data-member-id="${member.id}" type="button">编辑</button><button class="text-button reset-member-pin" data-member-id="${member.id}" type="button">重置 PIN</button>${member.active ? `<button class="text-button disable-member" data-member-id="${member.id}" type="button">停用</button>` : `<button class="text-button delete-member" data-member-id="${member.id}" type="button">删除</button>`}</td></tr>`).join("");
@@ -233,10 +327,12 @@ async function showAdminOverview() {
     await loadAdminDashboard();
     $("memberManagement").classList.add("hidden");
     $("adminRecordManagement").classList.add("hidden");
+    $("abnormalRecordManagement").classList.add("hidden");
     $("adminOverview").classList.remove("hidden");
     $("showAdminOverview").className = "admin-nav-current";
     $("showMemberManagement").className = "admin-nav-button";
     $("showAdminRecords").className = "admin-nav-button";
+    $("showAbnormalRecords").className = "admin-nav-button";
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -255,10 +351,12 @@ async function showAdminRecords(memberId = "") {
     await loadAdminRecords();
     $("adminOverview").classList.add("hidden");
     $("memberManagement").classList.add("hidden");
+    $("abnormalRecordManagement").classList.add("hidden");
     $("adminRecordManagement").classList.remove("hidden");
     $("showAdminOverview").className = "admin-nav-button";
     $("showMemberManagement").className = "admin-nav-button";
     $("showAdminRecords").className = "admin-nav-current";
+    $("showAbnormalRecords").className = "admin-nav-button";
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -269,10 +367,12 @@ async function showMemberManagement() {
     await loadManagedMembers();
     $("adminOverview").classList.add("hidden");
     $("adminRecordManagement").classList.add("hidden");
+    $("abnormalRecordManagement").classList.add("hidden");
     $("memberManagement").classList.remove("hidden");
     $("showAdminOverview").className = "admin-nav-button";
     $("showMemberManagement").className = "admin-nav-current";
     $("showAdminRecords").className = "admin-nav-button";
+    $("showAbnormalRecords").className = "admin-nav-button";
   } catch (error) {
     showToast(serviceErrorMessage(error));
   }
@@ -851,8 +951,10 @@ $("trainingCalendar").addEventListener("click", (event) => { const day = event.t
 $("adminLogout").addEventListener("click", leaveAdminDashboard);
 $("memberLogout").addEventListener("click", leaveAdminDashboard);
 $("adminRecordsLogout").addEventListener("click", leaveAdminDashboard);
+$("abnormalRecordsLogout").addEventListener("click", leaveAdminDashboard);
 $("showAdminOverview").addEventListener("click", showAdminOverview);
 $("showAdminRecords").addEventListener("click", () => showAdminRecords());
+$("showAbnormalRecords").addEventListener("click", showAbnormalRecords);
 $("showMemberManagement").addEventListener("click", showMemberManagement);
 $("adminOverviewYearFilter").addEventListener("change", (event) => { state.adminOverviewDraftYear = Number(event.target.value); });
 $("adminOverviewMonthFilter").addEventListener("change", (event) => { state.adminOverviewDraftMonth = Number(event.target.value); });
@@ -897,6 +999,11 @@ $("applyAdminRecordFilters").addEventListener("click", () => {
 });
 $("clearAdminRecordFilters").addEventListener("click", () => { const now = new Date(); state.adminRecordMemberId = ""; state.adminRecordDraftMemberId = ""; state.adminRecordYear = now.getFullYear(); state.adminRecordMonth = now.getMonth(); state.adminRecordDraftYear = state.adminRecordYear; state.adminRecordDraftMonth = state.adminRecordMonth; state.adminCalendarDate = ""; loadAdminRecords(); });
 $("adminRecordCalendar").addEventListener("click", (event) => { const day = event.target.closest("button[data-admin-calendar-date]"); if (!day || day.disabled) return; state.adminCalendarDate = day.dataset.adminCalendarDate; renderAdminRecords(); });
+$("abnormalRecords").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-record-id]");
+  if (!button) return;
+  openAbnormalAction(button.dataset.recordId, button.classList.contains("complete-abnormal-record") ? "complete" : "void");
+});
 $("adminOverviewRecordPagination").addEventListener("click", (event) => {
   const jumpButton = event.target.closest("button[data-admin-overview-page-jump]");
   if (jumpButton && state.adminDashboardData) {
@@ -969,6 +1076,9 @@ $("addMember").addEventListener("click", () => openMemberSheet());
 $("closeMemberSheet").addEventListener("click", closeMemberSheet);
 $("memberSheetBackdrop").addEventListener("click", closeMemberSheet);
 $("memberForm").addEventListener("submit", saveMember);
+$("closeAbnormalActionSheet").addEventListener("click", closeAbnormalAction);
+$("abnormalActionSheetBackdrop").addEventListener("click", closeAbnormalAction);
+$("abnormalActionForm").addEventListener("submit", saveAbnormalAction);
 $("memberManagementRows").addEventListener("click", (event) => {
   const memberId = event.target.dataset.memberId;
   if (!memberId) return;

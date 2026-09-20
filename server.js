@@ -41,6 +41,18 @@ database.exec(`
     created_at TEXT NOT NULL
   ) STRICT;
   CREATE INDEX IF NOT EXISTS sessions_member_started_idx ON sessions(member_id, started_at DESC);
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    admin_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    record_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    before_data TEXT NOT NULL,
+    after_data TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS audit_logs_record_created_idx ON audit_logs(record_id, created_at DESC);
 `);
 
 if (!database.prepare("PRAGMA table_info(members)").all().some((column) => column.name === "pin_hash")) {
@@ -95,8 +107,14 @@ const statements = {
   active: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'training' LIMIT 1"),
   sessions: database.prepare("SELECT * FROM sessions WHERE member_id = ? AND status = 'completed' ORDER BY started_at DESC"),
   allSessions: database.prepare("SELECT * FROM sessions ORDER BY started_at DESC"),
+  sessionById: database.prepare("SELECT * FROM sessions WHERE id = ?"),
   start: database.prepare("INSERT INTO sessions (id, member_id, started_at, start_photo_path, status, created_at) VALUES (?, ?, ?, ?, 'training', ?)"),
   end: database.prepare("UPDATE sessions SET ended_at = ?, end_photo_path = ?, status = 'completed' WHERE id = ? AND member_id = ? AND status = 'training'"),
+  adminEnd: database.prepare("UPDATE sessions SET ended_at = ?, status = 'completed' WHERE id = ? AND status = 'training'"),
+  voidSession: database.prepare("UPDATE sessions SET status = 'voided' WHERE id = ? AND status != 'voided'"),
+  createAuditLog: database.prepare("INSERT INTO audit_logs (id, admin_id, action, record_type, record_id, before_data, after_data, reason, created_at) VALUES (?, ?, ?, 'session', ?, ?, ?, ?, ?)"),
+  auditLogs: database.prepare("SELECT * FROM audit_logs WHERE record_id = ? ORDER BY created_at DESC"),
+  allAuditLogs: database.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100"),
 };
 
 function sendJson(response, status, data) {
@@ -115,6 +133,40 @@ function photoUrl(filePath) {
 function serializeSession(session) {
   if (!session) return null;
   return { id: session.id, memberId: session.member_id, start: session.started_at, end: session.ended_at, startPhoto: photoUrl(session.start_photo_path), endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null, status: session.status };
+}
+
+function sessionDurationMinutes(session, now = new Date()) {
+  const end = session.ended_at ? new Date(session.ended_at) : now;
+  return Math.max(0, (end.getTime() - new Date(session.started_at).getTime()) / 60000);
+}
+
+function abnormalTypes(session, now = new Date()) {
+  if (session.status === "voided") return [];
+  const duration = sessionDurationMinutes(session, now);
+  if (session.status === "training") return duration > 8 * 60 ? ["未结束", "超过8小时"] : [];
+  if (session.status !== "completed") return [];
+  const types = [];
+  if (duration > 8 * 60) types.push("超过8小时");
+  if (duration < 2) types.push("少于2分钟");
+  return types;
+}
+
+function auditSnapshot(session) {
+  return {
+    id: session.id,
+    memberId: session.member_id,
+    start: session.started_at,
+    end: session.ended_at,
+    startPhoto: photoUrl(session.start_photo_path),
+    endPhoto: session.end_photo_path ? photoUrl(session.end_photo_path) : null,
+    status: session.status,
+    durationMinutes: Math.round(sessionDurationMinutes(session)),
+  };
+}
+
+function saveAuditLog(action, session, before, reason) {
+  const createdAt = new Date().toISOString();
+  statements.createAuditLog.run(randomUUID(), ADMIN_ACCOUNT, action, session.id, JSON.stringify(auditSnapshot(before)), JSON.stringify(auditSnapshot(session)), reason, createdAt);
 }
 
 function startOfDay(date) {
@@ -172,7 +224,7 @@ function adminOverview(year, month) {
   const isCurrentPeriod = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
   const allMembers = statements.allMembers.all();
   const members = allMembers.filter((member) => member.active);
-  const sessions = statements.allSessions.all();
+  const sessions = statements.allSessions.all().filter((session) => session.status !== "voided");
   const monthStart = new Date(selectedYear, selectedMonth, 1);
   const nextMonth = new Date(selectedYear, selectedMonth + 1, 1);
   const goalMinutes = 16 * 60;
@@ -240,6 +292,33 @@ function adminRecords(memberId) {
     .filter((session) => session.status === "completed" && (!memberId || session.member_id === memberId))
     .map((session) => ({ ...serializeSession(session), memberName: names.get(session.member_id)?.name, workshop: names.get(session.member_id)?.workshop }));
   return { members, records };
+}
+
+function abnormalRecords() {
+  const now = new Date();
+  const members = new Map(statements.allMembers.all().map((member) => [member.id, member]));
+  const records = statements.allSessions.all().map((session) => {
+    const types = abnormalTypes(session, now);
+    if (!types.length) return null;
+    const member = members.get(session.member_id);
+    return { ...serializeSession(session), memberName: member?.name, workshop: member?.workshop, anomalyTypes: types, durationMinutes: Math.round(sessionDurationMinutes(session, now)) };
+  }).filter(Boolean);
+  return { now: now.toISOString(), records };
+}
+
+function modificationReason(body) {
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!reason) throw new Error("请填写修改原因。");
+  if (reason.length > 500) throw new Error("修改原因不能超过 500 个字符。");
+  return reason;
+}
+
+function parseAdminEndedAt(value, startedAt) {
+  if (typeof value !== "string" || !value.trim()) throw new Error("请填写补录结束时间。");
+  const endedAt = new Date(value);
+  if (Number.isNaN(endedAt.getTime())) throw new Error("补录结束时间格式无效。");
+  if (endedAt.getTime() <= new Date(startedAt).getTime()) throw new Error("补录结束时间必须晚于开始时间。");
+  return endedAt.toISOString();
 }
 
 function memberPayload(body) {
@@ -346,6 +425,63 @@ async function handleApi(request, response, pathname) {
     const memberId = new URL(request.url, `http://${request.headers.host || "localhost"}`).searchParams.get("memberId") || "";
     if (memberId && !statements.memberAny.get(memberId)) return sendError(response, 404, "成员不存在。");
     return sendJson(response, 200, adminRecords(memberId));
+  }
+  if (request.method === "GET" && pathname === "/api/admin/abnormal-records") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    return sendJson(response, 200, abnormalRecords());
+  }
+  if (request.method === "GET" && pathname === "/api/admin/audit-logs") {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    return sendJson(response, 200, { logs: statements.allAuditLogs.all().map((log) => ({ id: log.id, adminId: log.admin_id, action: log.action, recordId: log.record_id, beforeData: JSON.parse(log.before_data), afterData: JSON.parse(log.after_data), reason: log.reason, createdAt: log.created_at })) });
+  }
+  const abnormalSessionMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/void$/.exec(pathname);
+  const abnormalCompleteMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/complete$/.exec(pathname);
+  if (request.method === "POST" && abnormalCompleteMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const session = statements.sessionById.get(decodeURIComponent(abnormalCompleteMatch[1]));
+    if (!session) return sendError(response, 404, "实训记录不存在。");
+    if (session.status !== "training") return sendError(response, 409, "仅未结束的实训记录可以补录结束时间。");
+    const body = await readJson(request);
+    const reason = modificationReason(body);
+    const endedAt = parseAdminEndedAt(body.endedAt, session.started_at);
+    database.exec("BEGIN");
+    try {
+      statements.adminEnd.run(endedAt, session.id);
+      const updated = statements.sessionById.get(session.id);
+      saveAuditLog("补录结束时间", updated, session, reason);
+      database.exec("COMMIT");
+      return sendJson(response, 200, { record: serializeSession(updated) });
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  if (request.method === "POST" && abnormalSessionMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const session = statements.sessionById.get(decodeURIComponent(abnormalSessionMatch[1]));
+    if (!session) return sendError(response, 404, "实训记录不存在。");
+    if (session.status === "voided") return sendError(response, 409, "该实训记录已作废。");
+    if (!abnormalTypes(session).length) return sendError(response, 409, "仅异常实训记录可以作废。");
+    const body = await readJson(request);
+    const reason = modificationReason(body);
+    database.exec("BEGIN");
+    try {
+      statements.voidSession.run(session.id);
+      const updated = statements.sessionById.get(session.id);
+      saveAuditLog("作废记录", updated, session, reason);
+      database.exec("COMMIT");
+      return sendJson(response, 200, { record: serializeSession(updated) });
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const abnormalAuditMatch = /^\/api\/admin\/abnormal-records\/([^/]+)\/audit-logs$/.exec(pathname);
+  if (request.method === "GET" && abnormalAuditMatch) {
+    if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
+    const session = statements.sessionById.get(decodeURIComponent(abnormalAuditMatch[1]));
+    if (!session) return sendError(response, 404, "实训记录不存在。");
+    return sendJson(response, 200, { logs: statements.auditLogs.all(session.id).map((log) => ({ id: log.id, adminId: log.admin_id, action: log.action, recordId: log.record_id, beforeData: JSON.parse(log.before_data), afterData: JSON.parse(log.after_data), reason: log.reason, createdAt: log.created_at })) });
   }
   if (request.method === "GET" && pathname === "/api/admin/members") {
     if (!isAdmin(request)) return sendError(response, 401, "管理员身份已失效，请重新登录。");
