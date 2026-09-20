@@ -75,12 +75,12 @@
           <section class="summary-section" aria-labelledby="summaryTitle">
             <div class="section-heading">
               <div>
-                <h2 id="summaryTitle">本月训练进度</h2>
+                <h2 id="summaryTitle">训练进度</h2>
                 <p>目标为 16 小时，完成后自动显示达标状态。</p>
               </div>
               <strong id="progressText">13小时40分钟 <span>/ 16小时</span></strong>
             </div>
-            <div class="progress-track" aria-label="本月训练完成进度"><span id="progressBar"></span></div>
+            <div class="progress-track" id="progressTrack" aria-label="训练完成进度"><span id="progressBar"></span></div>
             <div class="progress-details">
               <div><span>已完成</span><strong id="completedTime">13小时40分钟</strong></div>
               <div><span>目标时长</span><strong>16小时</strong></div>
@@ -92,32 +92,10 @@
           <section class="stat-grid" aria-label="个人实训统计">
             <article><span class="stat-icon clock-icon" aria-hidden="true"></span><span>今日实训</span><strong id="todayTime">0分钟</strong></article>
             <article><span class="stat-icon chart-icon" aria-hidden="true"></span><span>本周实训</span><strong id="weekTime">4小时20分钟</strong></article>
-            <article><span class="stat-icon calendar-icon" aria-hidden="true"></span><span>本月次数</span><strong id="monthCount">8 次</strong></article>
+            <article><span class="stat-icon calendar-icon" aria-hidden="true"></span><span id="monthCountLabel">实训次数</span><strong id="monthCount">8 次</strong></article>
           </section>
 
-          <section class="calendar-section" aria-labelledby="calendarTitle">
-            <div class="section-heading compact">
-              <div><h2 id="calendarTitle">训练日历</h2></div>
-              <div class="calendar-tools"><label><span class="visually-hidden">年份</span><select id="calendarYear" aria-label="选择年份"></select></label><label><span class="visually-hidden">月份</span><select id="calendarMonth" aria-label="选择月份"></select></label><button class="primary-button calendar-apply-button" id="applyCalendarMonth" type="button">确定</button><span class="calendar-key"><i aria-hidden="true"></i>有实训记录</span></div>
-            </div>
-            <div class="training-calendar" id="trainingCalendar" aria-label="本月实训日历"></div>
-            <section class="calendar-detail" id="calendarDetail" aria-live="polite"></section>
-          </section>
-
-          <section class="analytics-section" aria-labelledby="analyticsTitle">
-            <div class="section-heading">
-              <div>
-                <h2 id="analyticsTitle">个人训练趋势</h2>
-                <p>按服务器时间汇总已完成和进行中的实训时长。</p>
-              </div>
-            </div>
-            <div class="daily-chart" aria-labelledby="dailyChartTitle">
-              <div class="chart-heading">
-                <div><h3 id="dailyChartTitle">本月每日实训时长</h3><p id="dailyChartSummary">尚无本月实训数据</p></div>
-                <span>单位：小时</span>
-              </div>
-              <div id="dailyTrainingChart" class="chart-canvas"></div>
-            </div>
+          <section class="analytics-section monthly-summary-section" aria-label="本周趋势与月度累计">
             <div class="analytics-split">
               <div class="trend-chart" aria-labelledby="weeklyChartTitle">
                 <div class="chart-heading">
@@ -132,6 +110,31 @@
                 <strong id="trainingInsightValue">0%</strong>
                 <span id="trainingInsightMeta">距离目标还需 16小时</span>
               </div>
+            </div>
+          </section>
+
+          <section class="calendar-section" aria-labelledby="calendarTitle">
+            <div class="section-heading compact">
+              <div><h2 id="calendarTitle">训练日历</h2></div>
+              <div class="calendar-tools"><label><span class="visually-hidden">年份</span><select id="calendarYear" aria-label="选择年份"></select></label><label><span class="visually-hidden">月份</span><select id="calendarMonth" aria-label="选择月份"></select></label><button class="primary-button calendar-apply-button" id="applyCalendarMonth" type="button">确定</button><span class="calendar-key"><i aria-hidden="true"></i>有实训记录</span></div>
+            </div>
+            <div class="training-calendar" id="trainingCalendar" aria-label="训练日历"></div>
+            <section class="calendar-detail" id="calendarDetail" aria-live="polite"></section>
+          </section>
+
+          <section class="analytics-section" aria-labelledby="analyticsTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="analyticsTitle">个人训练趋势</h2>
+                <p>按服务器时间汇总已完成和进行中的实训时长。</p>
+              </div>
+            </div>
+            <div class="daily-chart" aria-labelledby="dailyChartTitle">
+              <div class="chart-heading">
+                <div><h3 id="dailyChartTitle">每日实训时长</h3><p id="dailyChartSummary">暂无实训数据</p></div>
+                <span>单位：小时</span>
+              </div>
+              <div id="dailyTrainingChart" class="chart-canvas"></div>
             </div>
           </section>
 

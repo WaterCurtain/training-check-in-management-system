@@ -607,11 +607,16 @@ function renderTimer() {
 
 function renderStats() {
   const stats = state.statistics;
+  const now = new Date(state.serverNow);
+  const monthLabel = `${now.getFullYear()}年${now.getMonth() + 1}月`;
   const complete = stats.monthMinutes >= stats.goalMinutes;
   const ratio = Math.min(stats.monthMinutes / stats.goalMinutes, 1);
   $("todayTime").textContent = formatMinutes(stats.todayMinutes);
   $("weekTime").textContent = formatMinutes(stats.weekMinutes);
   $("monthCount").textContent = `${stats.monthCount} 次`;
+  $("summaryTitle").textContent = `${monthLabel}训练进度`;
+  $("monthCountLabel").textContent = `${monthLabel}实训次数`;
+  $("progressTrack").setAttribute("aria-label", `${monthLabel}训练完成进度`);
   $("progressText").innerHTML = `${formatMinutes(stats.monthMinutes)} <span>/ ${formatMinutes(stats.goalMinutes)}</span>`;
   $("completedTime").textContent = formatMinutes(stats.monthMinutes);
   $("remainingTime").textContent = formatRemainingMinutes(stats.goalMinutes - stats.monthMinutes);
@@ -622,6 +627,11 @@ function renderStats() {
 }
 
 function renderAnalytics() {
+  renderDailyTrainingChart();
+  renderWeeklyAndMonthlySummary();
+}
+
+function renderDailyTrainingChart() {
   const now = new Date(state.serverNow);
   const year = state.selectedCalendarYear ?? now.getFullYear();
   const month = state.selectedCalendarMonth ?? now.getMonth();
@@ -633,9 +643,12 @@ function renderAnalytics() {
   const monthActiveDays = monthValues.filter(Boolean).length;
   const monthDates = monthValues.map((_, index) => new Date(year, month, index + 1));
   $("dailyChartTitle").textContent = `${year}年${month + 1}月每日实训时长`;
-  $("dailyChartSummary").textContent = monthTotal ? `所选月份共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : "所选月份暂无实训数据";
-  $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthDates.map(chartDateLabel), monthDates.map((date) => `${date.getDate()}日`)) : '<p class="chart-empty">本月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>';
+  $("dailyChartSummary").textContent = monthTotal ? `${year}年${month + 1}月共 ${monthActiveDays} 个训练日，累计 ${formatMinutes(monthTotal)}` : `${year}年${month + 1}月暂无实训数据`;
+  $("dailyTrainingChart").innerHTML = monthTotal ? renderBarChart(monthValues, monthDates.map(chartDateLabel), monthDates.map((date) => `${date.getDate()}日`)) : `<p class="chart-empty">${year}年${month + 1}月还没有可统计的实训记录。完成一次实训后，时长会按日期显示在这里。</p>`;
+}
 
+function renderWeeklyAndMonthlySummary() {
+  const now = new Date(state.serverNow);
   const monday = startOfDay(now);
   monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
   const weekValues = chartRange(records, monday, 7, now);
@@ -645,9 +658,11 @@ function renderAnalytics() {
   $("weeklyTrainingChart").innerHTML = weekTotal ? renderLineChart(weekValues, weekDates.map(chartDateLabel), "本周训练趋势折线图", weekDates.map((date) => `周${["日", "一", "二", "三", "四", "五", "六"][date.getDay()]}`)) : '<p class="chart-empty">本周还没有可统计的实训记录。</p>';
 
   const stats = state.statistics;
+  const monthLabel = `${now.getFullYear()}年${now.getMonth() + 1}月`;
   const ratio = Math.min(stats.monthMinutes / stats.goalMinutes, 1);
+  $("trainingInsightTitle").textContent = `${monthLabel}累计进度`;
   $("trainingInsightValue").textContent = `${Math.round(ratio * 100)}%`;
-  $("trainingInsightMeta").textContent = stats.monthMinutes >= stats.goalMinutes ? "已完成本月 16 小时目标" : `距离目标还需 ${formatMinutes(stats.goalMinutes - stats.monthMinutes)}`;
+  $("trainingInsightMeta").textContent = stats.monthMinutes >= stats.goalMinutes ? `已完成${monthLabel} 16 小时目标` : `距离${monthLabel}目标还需 ${formatMinutes(stats.goalMinutes - stats.monthMinutes)}`;
   $("trainingInsightText").textContent = `累计 ${formatMinutes(stats.monthMinutes)}，${stats.monthCount} 次实训。`;
 }
 
@@ -673,6 +688,7 @@ function renderCalendar() {
   $("calendarMonth").innerHTML = Array.from({ length: 12 }, (_, index) => `<option value="${index}">${index + 1}月</option>`).join("");
   $("calendarYear").value = state.calendarDraftYear ?? year;
   $("calendarMonth").value = state.calendarDraftMonth ?? month;
+  $("trainingCalendar").setAttribute("aria-label", `${year}年${month + 1}月实训日历`);
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span class="calendar-weekday">${day}</span>`).join("");
   const blanks = Array.from({ length: leadingDays }, () => '<span class="calendar-blank" aria-hidden="true"></span>').join("");
   const days = Array.from({ length: daysInMonth }, (_, index) => {
@@ -807,7 +823,7 @@ $("applyCalendarMonth").addEventListener("click", () => {
   state.selectedCalendarMonth = state.calendarDraftMonth;
   state.selectedCalendarDate = "";
   state.historyPage = 1;
-  renderAnalytics();
+  renderDailyTrainingChart();
   renderCalendar();
   renderRecords();
 });
